@@ -3,9 +3,23 @@ package config
 import (
 	"os"
 	"strings"
+
 )
 
+type Configuration struct{
+	App           App               `json:"app"`
+	Database      PostgreDB         `json:"database"`
+	KafkaProducer map[string]string `json:"kafka_producer"`
+	Kafka         Kafka             `json:"kafka"`
+	Consumers     Consumers         `json:"consumers"`
+}
+
 type AppConfig struct {
+	App           App               `json:"app"`
+	Database      PostgreDB         `json:"database"`
+	KafkaProducer map[string]string `json:"kafka_producer"`
+	Kafka         Kafka             `json:"kafka"`
+	Consumers     Consumers         `json:"consumers"`
 	Port        string
 	DatabaseURL string
 	DBHost      string
@@ -25,30 +39,7 @@ type AppConfig struct {
 	RedisDB       string
 }
 
-func Load() AppConfig {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	dbURL := os.Getenv("DATABASE_URL")
-	return AppConfig{
-		Port:          port,
-		DatabaseURL:   dbURL,
-		DBHost:        getEnvDefault("DB_HOST", "127.0.0.1"),
-		DBPort:        getEnvDefault("DB_PORT", "5432"),
-		DBUser:        getEnvDefault("DB_USER", "postgres"),
-		DBPassword:    getEnvDefault("DB_PASSWORD", ""),
-		DBName:        getEnvDefault("DB_NAME", "appdb"),
-		DBSSLMode:     getEnvDefault("DB_SSLMODE", "disable"),
-		KafkaBrokers:  getEnvDefault("KAFKA_BROKERS", "127.0.0.1:9092"),
-		KafkaClientID: getEnvDefault("KAFKA_CLIENT_ID", "go-boilerplate-clean"),
-		KafkaGroupID:  getEnvDefault("KAFKA_GROUP_ID", "go-boilerplate-clean-group"),
-		KafkaTopic:    getEnvDefault("KAFKA_TOPIC", "user-events"),
-		RedisAddr:     getEnvDefault("REDIS_ADDR", "127.0.0.1:6379"),
-		RedisPassword: os.Getenv("REDIS_PASSWORD"),
-		RedisDB:       getEnvDefault("REDIS_DB", "0"),
-	}
-}
+var Config *AppConfig = &AppConfig{}
 
 func (c AppConfig) PGDSN() string {
 	if c.DatabaseURL != "" {

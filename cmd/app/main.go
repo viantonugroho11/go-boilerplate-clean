@@ -20,10 +20,17 @@ import (
 	"github.com/IBM/sarama"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	confLoader "github.com/viantonugroho11/go-config-library"
 )
 
 func main() {
-	cfg := config.Load()
+	loader := confLoader.New("", "go-boilerplate-clean", os.Getenv("CONSUL_URL"),
+		confLoader.WithConfigFileSearchPaths("./config"),
+	)
+	err := loader.Load(&config.Config)
+	if err != nil {
+		os.Exit(1)
+	}
 
 	e := echo.New()
 	e.HideBanner = true
@@ -32,7 +39,7 @@ func main() {
 
 	// Wiring dependencies
 	ctx := context.Background()
-	db, err := pginfra.Connect(ctx, cfg.PGDSN())
+	db, err := pginfra.Connect(ctx, config.Config.PGDSN())
 	if err != nil {
 		log.Fatalf("db connect error: %v", err)
 	}
@@ -46,7 +53,7 @@ func main() {
 	apis.RegisterRoutes(e, userService)
 
 	// Init Redis
-	redisClient, err := redisinfra.NewClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+	redisClient, err := redisinfra.NewClient(config.Config.RedisAddr, config.Config.RedisPassword, config.Config.RedisDB)
 	if err != nil {
 		log.Fatalf("redis init error: %v", err)
 	}

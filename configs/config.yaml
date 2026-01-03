@@ -1,0 +1,23 @@
+port: "8080"
+
+# Jika menggunakan DATABASE_URL, field lain diabaikan
+databaseurl: ""
+dbhost: "postgres"
+dbport: "5432"
+dbuser: "postgres"
+dbpassword: "postgres"
+dbname: "appdb"
+dbsslmode: "disable"
+
+# Kafka
+kafkabrokers: "kafka:9092"
+kafkaclientid: "go-boilerplate-clean"
+kafkagroupid: "go-boilerplate-clean-group"
+kafkatopic: "user-events"
+
+# Redis
+redisaddr: "redis:6379"
+redispassword: ""
+redisdb: "0"
+
+
