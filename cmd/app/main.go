@@ -25,8 +25,8 @@ import (
 )
 
 func main() {
-			cfg := config.Configuration{}
-			loader := confLoader.New("", "go-boilerplate-clean", os.Getenv("CONSUL_URL"),
+	cfg := config.Configuration{}
+	loader := confLoader.New("", "go-boilerplate-clean", os.Getenv("CONSUL_URL"),
 		confLoader.WithConfigFileSearchPaths("./config"),
 	)
 	err := loader.Load(&cfg)
@@ -81,7 +81,7 @@ func main() {
 
 	// HTTP server with graceful shutdown
 	server := &http.Server{
-	Addr:         ":" + cfg.App.Port,
+		Addr:         ":" + cfg.App.Port,
 		Handler:      e,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
