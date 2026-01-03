@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"time"
 
 	"go-boilerplate-clean/internal/config"
@@ -24,10 +25,11 @@ import (
 )
 
 func main() {
-	loader := confLoader.New("", "go-boilerplate-clean", os.Getenv("CONSUL_URL"),
+			cfg := config.Configuration{}
+			loader := confLoader.New("", "go-boilerplate-clean", os.Getenv("CONSUL_URL"),
 		confLoader.WithConfigFileSearchPaths("./config"),
 	)
-	err := loader.Load(&config.Config)
+	err := loader.Load(&cfg)
 	if err != nil {
 		os.Exit(1)
 	}
@@ -39,7 +41,7 @@ func main() {
 
 	// Wiring dependencies
 	ctx := context.Background()
-	db, err := pginfra.Connect(ctx, config.Config.PGDSN())
+	db, err := pginfra.Connect(ctx, cfg.PGDSN())
 	if err != nil {
 		log.Fatalf("db connect error: %v", err)
 	}
@@ -53,14 +55,14 @@ func main() {
 	apis.RegisterRoutes(e, userService)
 
 	// Init Redis
-	redisClient, err := redisinfra.NewClient(config.Config.RedisAddr, config.Config.RedisPassword, config.Config.RedisDB)
+	redisClient, err := redisinfra.NewClient(cfg.Redis.Addr, cfg.Redis.Password, strconv.Itoa(cfg.Redis.DB))
 	if err != nil {
 		log.Fatalf("redis init error: %v", err)
 	}
 	defer redisClient.Close()
 
 	// Init Kafka Producer
-	producer, err := kafkainfra.NewProducer(cfg.KafkaBrokersList(), cfg.KafkaClientID)
+	producer, err := kafkainfra.NewProducer(cfg.KafkaBrokersList(), cfg.Kafka.ClientID)
 	if err != nil {
 		log.Fatalf("kafka producer init error: %v", err)
 	}
@@ -70,7 +72,7 @@ func main() {
 	consumerHandler := func(ctx context.Context, msg *sarama.ConsumerMessage) error {
 		return kafkarunner.ExampleHandler(ctx, msg.Key, msg.Value)
 	}
-	consumer, err := kafkainfra.NewConsumer(cfg.KafkaBrokersList(), cfg.KafkaGroupID, cfg.KafkaTopic, consumerHandler)
+	consumer, err := kafkainfra.NewConsumer(cfg.KafkaBrokersList(), cfg.Kafka.GroupID, cfg.Kafka.Topic, consumerHandler)
 	if err != nil {
 		log.Fatalf("kafka consumer init error: %v", err)
 	}
@@ -79,7 +81,7 @@ func main() {
 
 	// HTTP server with graceful shutdown
 	server := &http.Server{
-		Addr:         ":" + cfg.Port,
+	Addr:         ":" + cfg.App.Port,
 		Handler:      e,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
@@ -91,7 +93,7 @@ func main() {
 			log.Fatalf("failed to start server: %v", err)
 		}
 	}()
-	log.Printf("server listening on :%s", cfg.Port)
+	log.Printf("server listening on :%s", cfg.App.Port)
 
 	// wait for interrupt signal to gracefully shutdown the server with a timeout
 	stop := make(chan os.Signal, 1)
