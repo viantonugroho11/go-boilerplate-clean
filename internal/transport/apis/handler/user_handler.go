@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"go-boilerplate-clean/internal/entity"
-	"go-boilerplate-clean/internal/transport/http/dto"
+	"go-boilerplate-clean/internal/transport/apis/dto"
 	"go-boilerplate-clean/internal/usecase"
 
 	"github.com/labstack/echo/v4"

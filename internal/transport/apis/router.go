@@ -2,7 +2,8 @@ package apis
 
 import (
 	"github.com/labstack/echo/v4"
-	"go-boilerplate-clean/internal/transport/http/handler"
+
+	"go-boilerplate-clean/internal/transport/apis/handler"
 	"go-boilerplate-clean/internal/usecase"
 )
 
