@@ -2,43 +2,35 @@ package postgres
 
 import (
 	"context"
-	"fmt"
-	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"go-boilerplate-clean/internal/repository/user/model"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
-func Connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	config, err := pgxpool.ParseConfig(dsn)
+func Connect(ctx context.Context, dsn string) (*gorm.DB, error) {
+	cfg := &gorm.Config{
+		SkipDefaultTransaction: true,
+		Logger:                 logger.Default.LogMode(logger.Silent),
+	}
+	db, err := gorm.Open(postgres.Open(dsn), cfg)
 	if err != nil {
-		return nil, fmt.Errorf("parse dsn: %w", err)
+		return nil, err
 	}
-	config.MaxConns = 10
-	config.MinConns = 1
-	config.MaxConnLifetime = time.Hour
-	config.MaxConnIdleTime = 5 * time.Minute
-
-	pool, err := pgxpool.NewWithConfig(ctx, config)
+	// Check connection
+	sqlDB, err := db.DB()
 	if err != nil {
-		return nil, fmt.Errorf("new pool: %w", err)
+		return nil, err
 	}
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("ping: %w", err)
+	if err := sqlDB.PingContext(ctx); err != nil {
+		return nil, err
 	}
-	return pool, nil
+	return db, nil
 }
 
-// Migrate creates required tables if not exist.
-func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
-	const q = `
-CREATE TABLE IF NOT EXISTS users (
-	id TEXT PRIMARY KEY,
-	name TEXT NOT NULL,
-	email TEXT NOT NULL UNIQUE
-);`
-	_, err := pool.Exec(ctx, q)
-	return err
+func Migrate(db *gorm.DB) error {
+	return db.AutoMigrate(&model.User{})
 }
 
 

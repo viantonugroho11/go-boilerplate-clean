@@ -3,6 +3,8 @@ package handler
 import (
 	"net/http"
 
+	"go-boilerplate-clean/internal/entity"
+	"go-boilerplate-clean/internal/transport/http/dto"
 	"go-boilerplate-clean/internal/usecase"
 
 	"github.com/labstack/echo/v4"
@@ -16,25 +18,12 @@ func NewUserHandler(service usecase.UserService) *UserHandler {
 	return &UserHandler{service: service}
 }
 
-type createUserRequest struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
-}
-
-type updateUserRequest struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
-}
-
 func (h *UserHandler) Create(c echo.Context) error {
-	var req createUserRequest
+	var req dto.CreateUserRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
-	user, err := h.service.Create(c.Request().Context(), usecase.User{
-		Name:  req.Name,
-		Email: req.Email,
-	})
+	user, err := h.service.Create(c.Request().Context(), req.ToEntity())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
@@ -60,11 +49,11 @@ func (h *UserHandler) List(c echo.Context) error {
 
 func (h *UserHandler) Update(c echo.Context) error {
 	id := c.Param("id")
-	var req updateUserRequest
+	var req dto.UpdateUserRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
-	user, err := h.service.Update(c.Request().Context(), usecase.User{
+	user, err := h.service.Update(c.Request().Context(), entity.User{
 		ID:    id,
 		Name:  req.Name,
 		Email: req.Email,

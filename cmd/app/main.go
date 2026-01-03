@@ -8,13 +8,18 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 	"go-boilerplate-clean/internal/config"
+	kafkainfra "go-boilerplate-clean/internal/infrastructure/broker/kafka"
+	redisinfra "go-boilerplate-clean/internal/infrastructure/cache/redis"
 	pginfra "go-boilerplate-clean/internal/infrastructure/database/postgres"
 	userpg "go-boilerplate-clean/internal/repository/user/postgres"
 	"go-boilerplate-clean/internal/transport/apis"
+	kafkarunner "go-boilerplate-clean/internal/transport/event/kafka"
 	"go-boilerplate-clean/internal/usecase"
+
+	"github.com/IBM/sarama"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
 func main() {
@@ -27,17 +32,43 @@ func main() {
 
 	// Wiring dependencies
 	ctx := context.Background()
-	pool, err := pginfra.Connect(ctx, cfg.PGDSN())
+	db, err := pginfra.Connect(ctx, cfg.PGDSN())
 	if err != nil {
 		log.Fatalf("db connect error: %v", err)
 	}
-	defer pool.Close()
-	if err := pginfra.Migrate(ctx, pool); err != nil {
+	sqlDB, _ := db.DB()
+	defer sqlDB.Close()
+	if err := pginfra.Migrate(db); err != nil {
 		log.Fatalf("db migrate error: %v", err)
 	}
-	userRepo := userpg.NewUserRepository(pool)
+	userRepo := userpg.NewUserRepository(db)
 	userService := usecase.NewUserService(userRepo)
 	apis.RegisterRoutes(e, userService)
+
+	// Init Redis
+	redisClient, err := redisinfra.NewClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+	if err != nil {
+		log.Fatalf("redis init error: %v", err)
+	}
+	defer redisClient.Close()
+
+	// Init Kafka Producer
+	producer, err := kafkainfra.NewProducer(cfg.KafkaBrokersList(), cfg.KafkaClientID)
+	if err != nil {
+		log.Fatalf("kafka producer init error: %v", err)
+	}
+	defer producer.Close()
+
+	// Init Kafka Consumer
+	consumerHandler := func(ctx context.Context, msg *sarama.ConsumerMessage) error {
+		return kafkarunner.ExampleHandler(ctx, msg.Key, msg.Value)
+	}
+	consumer, err := kafkainfra.NewConsumer(cfg.KafkaBrokersList(), cfg.KafkaGroupID, cfg.KafkaTopic, consumerHandler)
+	if err != nil {
+		log.Fatalf("kafka consumer init error: %v", err)
+	}
+	kafkarunner.RegisterConsumers(ctx, consumer)
+	defer consumer.Close()
 
 	// HTTP server with graceful shutdown
 	server := &http.Server{
@@ -68,5 +99,3 @@ func main() {
 		log.Println("server shutdown gracefully")
 	}
 }
-
-

@@ -4,79 +4,72 @@ import (
 	"context"
 	"errors"
 
+	"go-boilerplate-clean/internal/entity"
+	"go-boilerplate-clean/internal/repository/user/model"
+
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"go-boilerplate-clean/internal/usecase"
+	"gorm.io/gorm"
 )
 
 type UserRepository struct {
-	pool *pgxpool.Pool
+	db *gorm.DB
 }
 
-func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
-	return &UserRepository{pool: pool}
+func NewUserRepository(db *gorm.DB) *UserRepository {
+	return &UserRepository{db: db}
 }
 
-func (r *UserRepository) Create(ctx context.Context, user usecase.User) (usecase.User, error) {
+func (r *UserRepository) Create(ctx context.Context, user entity.User) (entity.User, error) {
 	if user.ID == "" {
 		user.ID = uuid.NewString()
 	}
-	const q = `INSERT INTO users (id, name, email) VALUES ($1, $2, $3)`
-	_, err := r.pool.Exec(ctx, q, user.ID, user.Name, user.Email)
-	return user, err
+	m := model.User{ID: user.ID, Name: user.Name, Email: user.Email}
+	err := r.db.WithContext(ctx).Create(&m).Error
+	return entity.User{ID: m.ID, Name: m.Name, Email: m.Email}, err
 }
 
-func (r *UserRepository) GetByID(ctx context.Context, id string) (usecase.User, error) {
-	const q = `SELECT id, name, email FROM users WHERE id = $1`
-	var u usecase.User
-	err := r.pool.QueryRow(ctx, q, id).Scan(&u.ID, &u.Name, &u.Email)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return usecase.User{}, errors.New("user not found")
+func (r *UserRepository) GetByID(ctx context.Context, id string) (entity.User, error) {
+	var u model.User
+	err := r.db.WithContext(ctx).First(&u, "id = ?", id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return entity.User{}, errors.New("user not found")
 	}
-	return u, err
+	return entity.User{ID: u.ID, Name: u.Name, Email: u.Email}, err
 }
 
-func (r *UserRepository) List(ctx context.Context) ([]usecase.User, error) {
-	const q = `SELECT id, name, email FROM users ORDER BY name`
-	rows, err := r.pool.Query(ctx, q)
-	if err != nil {
+func (r *UserRepository) List(ctx context.Context) ([]entity.User, error) {
+	var result []entity.User
+	var rows []model.User
+	if err := r.db.WithContext(ctx).Order("name").Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var result []usecase.User
-	for rows.Next() {
-		var u usecase.User
-		if err := rows.Scan(&u.ID, &u.Name, &u.Email); err != nil {
-			return nil, err
-		}
-		result = append(result, u)
+	for _, u := range rows {
+		result = append(result, entity.User{ID: u.ID, Name: u.Name, Email: u.Email})
 	}
-	return result, rows.Err()
+	return result, nil
 }
 
-func (r *UserRepository) Update(ctx context.Context, user usecase.User) (usecase.User, error) {
-	const q = `UPDATE users SET name=$2, email=$3 WHERE id=$1`
-	ct, err := r.pool.Exec(ctx, q, user.ID, user.Name, user.Email)
-	if err != nil {
-		return usecase.User{}, err
+func (r *UserRepository) Update(ctx context.Context, user entity.User) (entity.User, error) {
+	tx := r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", user.ID).Updates(map[string]interface{}{
+		"name":  user.Name,
+		"email": user.Email,
+	})
+	if tx.Error != nil {
+		return entity.User{}, tx.Error
 	}
-	if ct.RowsAffected() == 0 {
-		return usecase.User{}, errors.New("user not found")
+	if tx.RowsAffected == 0 {
+		return entity.User{}, errors.New("user not found")
 	}
 	return user, nil
 }
 
 func (r *UserRepository) Delete(ctx context.Context, id string) error {
-	const q = `DELETE FROM users WHERE id=$1`
-	ct, err := r.pool.Exec(ctx, q, id)
-	if err != nil {
-		return err
+	tx := r.db.WithContext(ctx).Delete(&model.User{}, "id = ?", id)
+	if tx.Error != nil {
+		return tx.Error
 	}
-	if ct.RowsAffected() == 0 {
+	if tx.RowsAffected == 0 {
 		return errors.New("user not found")
 	}
 	return nil
 }
-
-
