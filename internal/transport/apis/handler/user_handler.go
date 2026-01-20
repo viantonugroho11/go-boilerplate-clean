@@ -3,18 +3,18 @@ package handler
 import (
 	"net/http"
 
-	"go-boilerplate-clean/internal/entity"
+	userEntity "go-boilerplate-clean/internal/entity/users"
 	"go-boilerplate-clean/internal/transport/apis/dto"
-	"go-boilerplate-clean/internal/usecase/users"
-	
+	userUsecase "go-boilerplate-clean/internal/usecase/users"
+
 	"github.com/labstack/echo/v4"
 )
 
 type UserHandler struct {
-	service users.UserService
+	service userUsecase.UserService
 }
 
-func NewUserHandler(service users.UserService) *UserHandler {
+func NewUserHandler(service userUsecase.UserService) *UserHandler {
 	return &UserHandler{service: service}
 }
 
@@ -53,7 +53,7 @@ func (h *UserHandler) Update(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
-	user, err := h.service.Update(c.Request().Context(), entity.User{
+	user, err := h.service.Update(c.Request().Context(), userEntity.User{
 		ID:    id,
 		Name:  req.Name,
 		Email: req.Email,

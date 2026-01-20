@@ -1,6 +1,6 @@
 package dto
 
-import "go-boilerplate-clean/internal/entity"
+import "go-boilerplate-clean/internal/entity/users"
 
 type CreateUserRequest struct {
 	Name  string `json:"name"`
@@ -13,8 +13,8 @@ type UpdateUserRequest struct {
 }
 
 // to entity
-func (r *CreateUserRequest) ToEntity() entity.User {
-	return entity.User{
+func (r *CreateUserRequest) ToEntity() users.User {
+	return users.User{
 		Name:  r.Name,
 		Email: r.Email,
 	}
