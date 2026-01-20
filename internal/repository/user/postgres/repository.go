@@ -5,21 +5,22 @@ import (
 	"errors"
 
 	"go-boilerplate-clean/internal/entity"
+	"go-boilerplate-clean/internal/repository/user"
 	"go-boilerplate-clean/internal/repository/user/model"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-type UserRepository struct {
+type userRepository struct {
 	db *gorm.DB
 }
 
-func NewUserRepository(db *gorm.DB) *UserRepository {
-	return &UserRepository{db: db}
+func NewUserRepository(db *gorm.DB) user.UserRepository {
+	return &userRepository{db: db}
 }
 
-func (r *UserRepository) Create(ctx context.Context, user entity.User) (entity.User, error) {
+func (r *userRepository) Create(ctx context.Context, user entity.User) (entity.User, error) {
 	if user.ID == "" {
 		user.ID = uuid.NewString()
 	}
@@ -28,7 +29,7 @@ func (r *UserRepository) Create(ctx context.Context, user entity.User) (entity.U
 	return entity.User{ID: m.ID, Name: m.Name, Email: m.Email}, err
 }
 
-func (r *UserRepository) GetByID(ctx context.Context, id string) (entity.User, error) {
+func (r *userRepository) GetByID(ctx context.Context, id string) (entity.User, error) {
 	var u model.User
 	err := r.db.WithContext(ctx).First(&u, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -37,7 +38,7 @@ func (r *UserRepository) GetByID(ctx context.Context, id string) (entity.User, e
 	return entity.User{ID: u.ID, Name: u.Name, Email: u.Email}, err
 }
 
-func (r *UserRepository) List(ctx context.Context) ([]entity.User, error) {
+func (r *userRepository) List(ctx context.Context) ([]entity.User, error) {
 	var result []entity.User
 	var rows []model.User
 	if err := r.db.WithContext(ctx).Order("name").Find(&rows).Error; err != nil {
@@ -49,7 +50,7 @@ func (r *UserRepository) List(ctx context.Context) ([]entity.User, error) {
 	return result, nil
 }
 
-func (r *UserRepository) Update(ctx context.Context, user entity.User) (entity.User, error) {
+func (r *userRepository) Update(ctx context.Context, user entity.User) (entity.User, error) {
 	tx := r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", user.ID).Updates(map[string]interface{}{
 		"name":  user.Name,
 		"email": user.Email,
@@ -63,7 +64,7 @@ func (r *UserRepository) Update(ctx context.Context, user entity.User) (entity.U
 	return user, nil
 }
 
-func (r *UserRepository) Delete(ctx context.Context, id string) error {
+func (r *userRepository) Delete(ctx context.Context, id string) error {
 	tx := r.db.WithContext(ctx).Delete(&model.User{}, "id = ?", id)
 	if tx.Error != nil {
 		return tx.Error

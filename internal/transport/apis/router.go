@@ -4,10 +4,10 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"go-boilerplate-clean/internal/transport/apis/handler"
-	"go-boilerplate-clean/internal/usecase"
+	"go-boilerplate-clean/internal/usecase/users"
 )
 
-func RegisterRoutes(e *echo.Echo, userService usecase.UserService) {
+func RegisterRoutes(e *echo.Echo, userService users.UserService) {
 	userHandler := handler.NewUserHandler(userService)
 
 	e.GET("/healthz", func(c echo.Context) error {

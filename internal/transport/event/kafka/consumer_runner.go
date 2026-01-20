@@ -4,12 +4,12 @@ import (
 	"context"
 	"log"
 
-	infra "go-boilerplate-clean/internal/infrastructure/broker/kafka"
+	"go-boilerplate-clean/internal/infrastructure/broker"
 )
 
 // RegisterConsumers menyiapkan dan menjalankan consumer Kafka dengan handler contoh.
 // Anda bisa mengganti handler untuk memanggil usecase tertentu.
-func RegisterConsumers(ctx context.Context, consumer *infra.Consumer) {
+func RegisterConsumers(ctx context.Context, consumer broker.Consumer) {
 	consumer.Start(ctx)
 }
 
@@ -19,5 +19,3 @@ func ExampleHandler(ctx context.Context, msgKey, msgVal []byte) error {
 	log.Printf("kafka message: key=%s val=%s", string(msgKey), string(msgVal))
 	return nil
 }
-
-

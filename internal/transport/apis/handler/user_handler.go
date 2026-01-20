@@ -5,16 +5,16 @@ import (
 
 	"go-boilerplate-clean/internal/entity"
 	"go-boilerplate-clean/internal/transport/apis/dto"
-	"go-boilerplate-clean/internal/usecase"
-
+	"go-boilerplate-clean/internal/usecase/users"
+	
 	"github.com/labstack/echo/v4"
 )
 
 type UserHandler struct {
-	service usecase.UserService
+	service users.UserService
 }
 
-func NewUserHandler(service usecase.UserService) *UserHandler {
+func NewUserHandler(service users.UserService) *UserHandler {
 	return &UserHandler{service: service}
 }
 

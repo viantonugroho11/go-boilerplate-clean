@@ -1,4 +1,4 @@
-package usecase
+package users
 
 import (
 	"context"
@@ -18,10 +18,10 @@ type UserService interface {
 }
 
 type userService struct {
-	repo repouser.Repository
+	repo repouser.UserRepository
 }
 
-func NewUserService(repo repouser.Repository) UserService {
+func NewUserService(repo repouser.UserRepository) UserService {
 	return &userService{repo: repo}
 }
 

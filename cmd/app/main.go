@@ -16,7 +16,7 @@ import (
 	userpg "go-boilerplate-clean/internal/repository/user/postgres"
 	"go-boilerplate-clean/internal/transport/apis"
 	kafkarunner "go-boilerplate-clean/internal/transport/event/kafka"
-	"go-boilerplate-clean/internal/usecase"
+	usecaseusers "go-boilerplate-clean/internal/usecase/users"
 
 	"github.com/IBM/sarama"
 	"github.com/labstack/echo/v4"
@@ -51,7 +51,7 @@ func main() {
 		log.Fatalf("db migrate error: %v", err)
 	}
 	userRepo := userpg.NewUserRepository(db)
-	userService := usecase.NewUserService(userRepo)
+	userService := usecaseusers.NewUserService(userRepo)
 	apis.RegisterRoutes(e, userService)
 
 	// Init Redis
