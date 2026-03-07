@@ -18,18 +18,31 @@ type UserService interface {
 }
 
 type userService struct {
-	repo repouser.UserRepository
+	repo     repouser.UserRepository
+	publisher UserEventPublisher // optional: bisa nil
 }
 
 func NewUserService(repo repouser.UserRepository) UserService {
-	return &userService{repo: repo}
+	return &userService{repo: repo, publisher: nil}
+}
+
+// NewUserServiceWithPublisher membuat UserService yang akan publish event (e.g. UserCreated) via Kafka.
+func NewUserServiceWithPublisher(repo repouser.UserRepository, publisher UserEventPublisher) UserService {
+	return &userService{repo: repo, publisher: publisher}
 }
 
 func (s *userService) Create(ctx context.Context, user userEntity.User) (userEntity.User, error) {
 	if err := validateUser(user, true); err != nil {
 		return userEntity.User{}, err
 	}
-	return s.repo.Create(ctx, user)
+	created, err := s.repo.Create(ctx, user)
+	if err != nil {
+		return userEntity.User{}, err
+	}
+	if s.publisher != nil {
+		_ = s.publisher.PublishUserCreated(ctx, created.ID, created.Name, created.Email)
+	}
+	return created, nil
 }
 
 func (s *userService) GetByID(ctx context.Context, id string) (userEntity.User, error) {
