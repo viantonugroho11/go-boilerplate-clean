@@ -10,7 +10,7 @@ import (
 	"syscall"
 
 	userpg "go-boilerplate-clean/internal/repository/user/postgres"
-	eventkafka "go-boilerplate-clean/internal/transport/event/kafka"
+	"go-boilerplate-clean/internal/transport/event"
 	usecaseusers "go-boilerplate-clean/internal/usecase/users"
 )
 
@@ -40,13 +40,13 @@ func RunConsumer(name string) error {
 		defer sqlDB.Close()
 		userRepo := userpg.NewUserRepository(db)
 		userService := usecaseusers.NewUserService(userRepo)
-		c, err := eventkafka.RunUser(ctx, cfg, userService)
+		c, err := event.RunUser(ctx, cfg, userService)
 		if err != nil {
 			return err
 		}
 		consumer = c
 	case ConsumerOrder:
-		c, err := eventkafka.RunOrder(ctx, cfg)
+		c, err := event.RunOrder(ctx, cfg)
 		if err != nil {
 			return err
 		}

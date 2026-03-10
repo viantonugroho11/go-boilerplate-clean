@@ -4,8 +4,6 @@ import (
 	"context"
 	"log"
 
-	"go-boilerplate-clean/internal/config"
-	kafkainfra "go-boilerplate-clean/internal/infrastructure/broker/kafka"
 	"go-boilerplate-clean/internal/transport/event/events"
 
 	"github.com/viantonugroho11/go-lib/kafka"
@@ -26,14 +24,4 @@ func (h *OrderCreatedHandler) Handle(ctx context.Context, evt events.OrderCreate
 	return kafka.Progress{Status: kafka.ProgressSuccess, Result: "ok"}
 }
 
-// RunOrder menjalankan consumer order-created.
-func RunOrder(ctx context.Context, cfg *config.Configuration) (kafka.Consumer, error) {
-	groupID, topic := cfg.Kafka.GroupIDOrders, cfg.Kafka.TopicOrders
-	if groupID == "" {
-		groupID = "order-consumer-group"
-	}
-	if topic == "" {
-		topic = "orders"
-	}
-	return kafkainfra.RunWithConfig[events.OrderCreatedEvent](ctx, cfg, groupID, topic, NewOrderCreatedHandler())
-}
+

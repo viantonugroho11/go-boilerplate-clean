@@ -4,8 +4,6 @@ import (
 	"context"
 	"log"
 
-	"go-boilerplate-clean/internal/config"
-	kafkainfra "go-boilerplate-clean/internal/infrastructure/broker/kafka"
 	"go-boilerplate-clean/internal/transport/event/events"
 	userUsecase "go-boilerplate-clean/internal/usecase/users"
 
@@ -38,7 +36,4 @@ func (h *UserCreatedHandler) Handle(ctx context.Context, evt events.UserCreatedE
 	return kafka.Progress{Status: kafka.ProgressSuccess, Result: "ok"}
 }
 
-// RunUser menjalankan consumer user-created.
-func RunUser(ctx context.Context, cfg *config.Configuration, userService userUsecase.UserService) (kafka.Consumer, error) {
-	return kafkainfra.RunWithConfig[events.UserCreatedEvent](ctx, cfg, cfg.Kafka.GroupID, cfg.Kafka.Topic, NewUserCreatedHandler(userService))
-}
+
