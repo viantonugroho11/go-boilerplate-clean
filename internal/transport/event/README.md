@@ -15,7 +15,7 @@ Consumer memakai **go-lib/kafka**; handler di sini, factory di `internal/infrast
    Inject usecase di constructor, panggil usecase di `Handle`.  
    Contoh: `kafka/order_consumer_handler.go` → `OrderCreatedHandler`.
 
-3. **Runner & main** — di `kafka/runner.go` tambah `RunXxx(ctx, cfg, ...deps) (kafka.Consumer, error)`; di `cmd/consumer/main.go` tambah `case "nama":` yang panggil runner tersebut. Flag **single** `-consumer=<nama>`:
+3. **Runner & bootstrap** — di `router.go`: (1) tambah konstanta nama di `ConsumerNames` dan const (e.g. `ConsumerNameXxx`), (2) tambah fungsi `RunXxx(ctx, cfg, ...deps) (kafka.Consumer, error)`, (3) di `bootstrap/consumer.go` tambah `case event.ConsumerNameXxx:` yang panggil runner tersebut. Flag **single** `-consumer=<nama>`:
    ```bash
    ./consumer -consumer=user
    ./consumer -consumer=order

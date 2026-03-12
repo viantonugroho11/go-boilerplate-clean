@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	userpg "go-boilerplate-clean/internal/repository/user/postgres"
@@ -15,8 +16,8 @@ import (
 )
 
 const (
-	ConsumerUser  = "user"
-	ConsumerOrder = "order"
+	ConsumerUser  = event.ConsumerNameUser
+	ConsumerOrder = event.ConsumerNameOrder
 )
 
 // RunConsumer menjalankan consumer sesuai name (user | order): config global, wiring terisolasi per consumer, run sampai signal.
@@ -52,7 +53,7 @@ func RunConsumer(name string) error {
 		}
 		consumer = c
 	default:
-		return fmt.Errorf("consumer %q tidak dikenal, pilih: %s | %s", name, ConsumerUser, ConsumerOrder)
+		return fmt.Errorf("consumer %q tidak dikenal, pilih: %s", name, strings.Join(event.ConsumerNames(), " | "))
 	}
 
 	defer func() {
