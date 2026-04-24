@@ -3,8 +3,8 @@ package kafka
 import (
 	"context"
 
+	"go-boilerplate-clean/internal/entity/users"
 	"go-boilerplate-clean/internal/transport/event/events"
-	"go-boilerplate-clean/internal/usecase/users"
 
 	"github.com/viantonugroho11/go-lib/kafka"
 )
@@ -14,14 +14,14 @@ type UserEventPublisherKafka struct {
 	producer *kafka.Producer[events.UserCreatedEvent]
 }
 
-func NewUserEventPublisherKafka(producer *kafka.Producer[events.UserCreatedEvent]) users.UserEventPublisher {
+func NewUserEventPublisherKafka(producer *kafka.Producer[events.UserCreatedEvent]) *UserEventPublisherKafka {
 	return &UserEventPublisherKafka{producer: producer}
 }
 
-func (p *UserEventPublisherKafka) PublishUserCreated(ctx context.Context, id, name, email string) error {
+func (p *UserEventPublisherKafka) PublishUser(ctx context.Context, user users.User) error {
 	return p.producer.Publish(ctx, events.UserCreatedEvent{
-		ID:    id,
-		Name:  name,
-		Email: email,
+		ID:    user.ID,
+		Name:  user.Name,
+		Email: user.Email,
 	})
 }

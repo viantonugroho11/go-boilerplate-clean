@@ -3,6 +3,7 @@ package users
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 
 	userEntity "go-boilerplate-clean/internal/entity/users"
@@ -22,12 +23,7 @@ type userService struct {
 	publisher UserEventPublisher // optional: bisa nil
 }
 
-func NewUserService(repo repouser.UserRepository) UserService {
-	return &userService{repo: repo, publisher: nil}
-}
-
-// NewUserServiceWithPublisher membuat UserService yang akan publish event (e.g. UserCreated) via Kafka.
-func NewUserServiceWithPublisher(repo repouser.UserRepository, publisher UserEventPublisher) UserService {
+func NewUserService(repo repouser.UserRepository, publisher UserEventPublisher) UserService {
 	return &userService{repo: repo, publisher: publisher}
 }
 
@@ -39,8 +35,10 @@ func (s *userService) Create(ctx context.Context, user userEntity.User) (userEnt
 	if err != nil {
 		return userEntity.User{}, err
 	}
-	if s.publisher != nil {
-		_ = s.publisher.PublishUserCreated(ctx, created.ID, created.Name, created.Email)
+
+		err = s.publisher.PublishUser(ctx, created)
+	if err != nil {
+		log.Printf("user_usecase: PublishUserCreated: %v", err)
 	}
 	return created, nil
 }
@@ -63,7 +61,16 @@ func (s *userService) Update(ctx context.Context, user userEntity.User) (userEnt
 	if err := validateUser(user, false); err != nil {
 		return userEntity.User{}, err
 	}
-	return s.repo.Update(ctx, user)
+	updated, err := s.repo.Update(ctx, user)
+	if err != nil {
+		return userEntity.User{}, err
+	}
+
+	err = s.publisher.PublishUser(ctx, updated)
+	if err != nil {
+		log.Printf("user_usecase: PublishUserUpdated: %v", err)
+	}
+	return updated, nil
 }
 
 func (s *userService) Delete(ctx context.Context, id string) error {

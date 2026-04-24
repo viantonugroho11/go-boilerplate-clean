@@ -10,9 +10,13 @@ import (
 	"strings"
 	"syscall"
 
+	kafkainfra "go-boilerplate-clean/internal/infrastructure/broker/kafka"
 	userpg "go-boilerplate-clean/internal/repository/user/postgres"
 	"go-boilerplate-clean/internal/transport/event"
+	"go-boilerplate-clean/internal/transport/event/events"
 	usecaseusers "go-boilerplate-clean/internal/usecase/users"
+
+	"github.com/viantonugroho11/go-lib/kafka"
 )
 
 const (
@@ -40,7 +44,18 @@ func RunConsumer(name string) error {
 		sqlDB, _ := db.DB()
 		defer sqlDB.Close()
 		userRepo := userpg.NewUserRepository(db)
-		userService := usecaseusers.NewUserService(userRepo)
+		producer, err := kafka.NewProducer[events.UserCreatedEvent](
+			cfg.KafkaBrokersList(),
+			cfg.Kafka.Topic,
+			kafka.WithKeyFunc[events.UserCreatedEvent](func(e events.UserCreatedEvent) []byte { return []byte(e.ID) }),
+			kafka.WithIdempotent(),
+			kafka.WithRetryMax(5),
+		)
+		if err != nil {
+			return err
+		}
+		publisher := kafkainfra.NewUserEventPublisherKafka(producer)
+		userService := usecaseusers.NewUserService(userRepo, publisher)
 		c, err := event.RunUser(ctx, cfg, userService)
 		if err != nil {
 			return err

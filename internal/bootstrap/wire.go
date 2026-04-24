@@ -26,6 +26,6 @@ func wireUserService(db *gorm.DB) (usecaseusers.UserService, func(), error) {
 		return nil, nil, err
 	}
 	publisher := kafkainfra.NewUserEventPublisherKafka(producer)
-	userService := usecaseusers.NewUserServiceWithPublisher(userRepo, publisher)
+	userService := usecaseusers.NewUserService(userRepo, publisher)
 	return userService, func() { _ = producer.Close() }, nil
 }
