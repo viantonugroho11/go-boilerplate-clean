@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	userEntity "go-boilerplate-clean/internal/entity/users"
+	begin "go-boilerplate-clean/internal/repository/begin"
 	repouser "go-boilerplate-clean/internal/repository/user"
 )
 
@@ -19,8 +20,9 @@ type UserService interface {
 }
 
 type userService struct {
-	repo     repouser.UserRepository
-	publisher UserEventPublisher // optional: bisa nil
+	repo      repouser.UserRepository
+	txManager begin.BeginRepository
+	publisher UserEventPublisher 
 }
 
 func NewUserService(repo repouser.UserRepository, publisher UserEventPublisher) UserService {
@@ -31,12 +33,26 @@ func (s *userService) Create(ctx context.Context, user userEntity.User) (userEnt
 	if err := validateUser(user, true); err != nil {
 		return userEntity.User{}, err
 	}
-	created, err := s.repo.Create(ctx, user)
+	tx, err := s.txManager.Begin(ctx)
 	if err != nil {
 		return userEntity.User{}, err
 	}
 
-		err = s.publisher.PublishUser(ctx, created)
+	defer func() {
+		if err != nil {
+			s.txManager.Rollback(ctx, tx)
+		}
+	}()
+	created, err := s.repo.Create(ctx, tx, user)
+	if err != nil {
+		return userEntity.User{}, err
+	}
+	err = s.txManager.Commit(ctx, tx)
+	if err != nil {
+		return userEntity.User{}, err
+	}
+
+	err = s.publisher.PublishUser(ctx, created)
 	if err != nil {
 		log.Printf("user_usecase: PublishUserCreated: %v", err)
 	}
@@ -47,11 +63,11 @@ func (s *userService) GetByID(ctx context.Context, id string) (userEntity.User, 
 	if strings.TrimSpace(id) == "" {
 		return userEntity.User{}, errors.New("id is required")
 	}
-	return s.repo.GetByID(ctx, id)
+	return s.repo.GetByID(ctx, nil, id)
 }
 
 func (s *userService) List(ctx context.Context) ([]userEntity.User, error) {
-	return s.repo.List(ctx)
+	return s.repo.List(ctx, nil)
 }
 
 func (s *userService) Update(ctx context.Context, user userEntity.User) (userEntity.User, error) {
@@ -61,7 +77,7 @@ func (s *userService) Update(ctx context.Context, user userEntity.User) (userEnt
 	if err := validateUser(user, false); err != nil {
 		return userEntity.User{}, err
 	}
-	updated, err := s.repo.Update(ctx, user)
+	updated, err := s.repo.Update(ctx, nil, user)
 	if err != nil {
 		return userEntity.User{}, err
 	}
@@ -77,7 +93,7 @@ func (s *userService) Delete(ctx context.Context, id string) error {
 	if strings.TrimSpace(id) == "" {
 		return errors.New("id is required")
 	}
-	return s.repo.Delete(ctx, id)
+	return s.repo.Delete(ctx, nil, id)
 }
 
 func validateUser(user userEntity.User, creating bool) error {
