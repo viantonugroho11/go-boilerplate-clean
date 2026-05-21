@@ -207,6 +207,14 @@ Optional SQL:
 - Kafka broker unavailable: verify `KAFKA_BROKERS` and broker status
 - Redis connection refused: verify `REDIS_ADDR` and Redis status
 
+## Code generation (AI agents)
+
+- [docs/codegen.md](docs/codegen.md) — add domains, CRUD, Kafka, wiring
+- [docs/statemachine.md](docs/statemachine.md) — status workflows
+- [AGENTS.md](AGENTS.md) — agent entry point
+
+Sample state machine API: `POST /samples`, `PUT /samples/:id`.
+
 ## License
 MIT. Feel free to use and modify.
 

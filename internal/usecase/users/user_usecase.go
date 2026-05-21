@@ -25,8 +25,8 @@ type userService struct {
 	publisher UserEventPublisher 
 }
 
-func NewUserService(repo repouser.UserRepository, publisher UserEventPublisher) UserService {
-	return &userService{repo: repo, publisher: publisher}
+func NewUserService(repo repouser.UserRepository, txManager begin.BeginRepository, publisher UserEventPublisher) UserService {
+	return &userService{repo: repo, txManager: txManager, publisher: publisher}
 }
 
 func (s *userService) Create(ctx context.Context, user userEntity.User) (userEntity.User, error) {

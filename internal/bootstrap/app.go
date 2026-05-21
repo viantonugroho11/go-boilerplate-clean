@@ -25,6 +25,7 @@ func RunApp() error {
 	}
 	defer redisClient.Close()
 
-	e := newEcho(userService)
+	sampleService := wireSampleService(db)
+	e := newEcho(userService, sampleService)
 	return runHTTP(e)
 }

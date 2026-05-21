@@ -14,5 +14,10 @@ func NewOnOpen() *onOpen {
 }
 
 func (s *onOpen) OnStateTransition(ctx context.Context, tx *gorm.DB, update entitysample.Sample) (entitysample.Sample, error) {
+	_ = ctx
+	_ = tx
+	if update.Status == "" {
+		update.Status = entitysample.SampleStatusOpen
+	}
 	return update, nil
 }

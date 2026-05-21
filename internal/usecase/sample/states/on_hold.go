@@ -21,5 +21,4 @@ func (s onHold) Do(ctx context.Context, tx *gorm.DB, update sample.Sample) (samp
 	default:
 		return s.onPending.OnStateTransition(ctx, tx, update)
 	}
-	return s.onPending.OnStateTransition(ctx, tx, update)
 }

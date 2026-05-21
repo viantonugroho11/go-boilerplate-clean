@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go-boilerplate-clean/internal/transport/apis"
+	usecasesample "go-boilerplate-clean/internal/usecase/sample"
 	usecaseusers "go-boilerplate-clean/internal/usecase/users"
 
 	"github.com/labstack/echo/v4"
@@ -16,11 +17,11 @@ import (
 )
 
 // NewEcho buat Echo, middleware, dan daftar routes.
-func newEcho(userService usecaseusers.UserService) *echo.Echo {
+func newEcho(userService usecaseusers.UserService, sampleService usecasesample.SampleService) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 	e.Use(middleware.Recover(), middleware.Logger())
-	apis.RegisterRoutes(e, userService)
+	apis.RegisterRoutes(e, userService, sampleService)
 	return e
 }
 

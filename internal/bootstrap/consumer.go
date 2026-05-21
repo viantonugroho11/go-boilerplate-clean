@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	kafkainfra "go-boilerplate-clean/internal/infrastructure/broker/kafka"
+	beginpg "go-boilerplate-clean/internal/repository/begin/postgres"
 	userpg "go-boilerplate-clean/internal/repository/user/postgres"
 	"go-boilerplate-clean/internal/transport/event"
 	"go-boilerplate-clean/internal/transport/event/events"
@@ -44,6 +45,7 @@ func RunConsumer(name string) error {
 		sqlDB, _ := db.DB()
 		defer sqlDB.Close()
 		userRepo := userpg.NewUserRepository(db)
+		txManager := beginpg.NewBeginRepository(db)
 		producer, err := kafka.NewProducer[events.UserCreatedEvent](
 			cfg.KafkaBrokersList(),
 			cfg.Kafka.Topic,
@@ -55,7 +57,7 @@ func RunConsumer(name string) error {
 			return err
 		}
 		publisher := kafkainfra.NewUserEventPublisherKafka(producer)
-		userService := usecaseusers.NewUserService(userRepo, publisher)
+		userService := usecaseusers.NewUserService(userRepo, txManager, publisher)
 		c, err := event.RunUser(ctx, cfg, userService)
 		if err != nil {
 			return err

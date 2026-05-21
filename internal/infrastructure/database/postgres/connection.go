@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 
+	samplemodel "go-boilerplate-clean/internal/repository/sample/model"
 	"go-boilerplate-clean/internal/repository/user/model"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -30,7 +31,7 @@ func Connect(ctx context.Context, dsn string) (*gorm.DB, error) {
 }
 
 func Migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&model.User{})
+	return db.AutoMigrate(&model.User{}, &samplemodel.Sample{})
 }
 
 

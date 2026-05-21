@@ -73,9 +73,8 @@ func (smf stateMachineFactorySample) NewStateMachine(ctx context.Context, curren
 	}
 
 	sm.data = current
-	if sm.data.ID == "" {
-
-		return nil, fmt.Errorf("sample ID is required")
+	if sm.data.Status == "" {
+		sm.data.Status = sample.SampleStatusOpen
 	}
 
 	switch sm.data.Status {

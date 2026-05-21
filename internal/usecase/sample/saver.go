@@ -3,7 +3,6 @@ package sample
 import (
 	"context"
 
-	"go-boilerplate-clean/internal/config"
 	entitysample "go-boilerplate-clean/internal/entity/sample"
 	"go-boilerplate-clean/internal/usecase/sample/states"
 
@@ -36,15 +35,20 @@ type (
 	}
 
 	TransactionManager interface {
-		Begin(ctx context.Context) *gorm.DB
-		Commit(ctx context.Context, tx *gorm.DB) (err error)
-		Rollback(ctx context.Context, tx *gorm.DB) (err error)
+		Begin(ctx context.Context) (*gorm.DB, error)
+		Commit(ctx context.Context, tx *gorm.DB) error
+		Rollback(ctx context.Context, tx *gorm.DB) error
 	}
+
+	// SampleService saves samples through the state machine orchestration.
+	SampleService interface {
+		Save(ctx context.Context, sample entitysample.Sample) (entitysample.Sample, error)
+	}
+
 )
 
 type sampleSaver struct {
 	stateMachine NewSampleStateMachine
-	conf         *config.Configuration
 	txManager    TransactionManager
 	adder        SampleAdder
 	getter       SampleGetter
@@ -54,16 +58,14 @@ type sampleSaver struct {
 
 func NewSampleSaver(
 	stateMachine NewSampleStateMachine,
-	conf *config.Configuration,
 	txManager TransactionManager,
 	adder SampleAdder,
 	getter SampleGetter,
 	updater SampleUpdater,
 	publisher SamplePublisher,
-) *sampleSaver {
+) SampleService {
 	return &sampleSaver{
 		stateMachine: stateMachine,
-		conf:         conf,
 		txManager:    txManager,
 		adder:        adder,
 		getter:       getter,
@@ -97,10 +99,13 @@ func (s *sampleSaver) Save(ctx context.Context, sample entitysample.Sample) (ent
 		return entitysample.Sample{}, err
 	}
 
-	tx := s.txManager.Begin(ctx)
+	tx, err := s.txManager.Begin(ctx)
+	if err != nil {
+		return entitysample.Sample{}, err
+	}
 	defer func() {
-		if err = s.txManager.Rollback(ctx, tx); err != nil {
-			return
+		if err != nil {
+			_ = s.txManager.Rollback(ctx, tx)
 		}
 	}()
 
