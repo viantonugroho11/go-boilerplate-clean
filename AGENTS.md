@@ -1,30 +1,85 @@
 # Agent instructions — go-boilerplate-clean
 
-Before generating or modifying features in this repository, read:
+Read this file first. Then open the doc(s) for your task before writing code.
 
-| Task | Document | Reference code |
-|------|----------|----------------|
+## Documentation map
+
+| Task | Read | Golden reference |
+|------|------|------------------|
 | New domain (CRUD, HTTP, repo, wire) | [docs/codegen.md](docs/codegen.md) | `internal/usecase/users` |
 | Entity with `status` / workflow | [docs/statemachine.md](docs/statemachine.md) | `internal/usecase/sample` |
-| Both | Both docs above | `users` + `sample` |
+| CRUD + state machine | Both docs | `users` + `sample` |
+
+**Module path:** `go-boilerplate-clean`
+
+## Reference implementations (current repo)
+
+### Users — simple CRUD + Kafka
+
+| Layer | Path |
+|-------|------|
+| Entity | `internal/entity/users/user.go` |
+| Repository | `internal/repository/user/` |
+| Usecase | `internal/usecase/users/user_usecase.go`, `events.go` |
+| HTTP | `internal/transport/apis/handler/user_handler.go` |
+| Kafka event | `internal/transport/event/events/user_events.go` |
+| Kafka publisher | `internal/infrastructure/broker/kafka/user_event_publisher.go` |
+| Wire | `wireUserService` in `internal/bootstrap/wire.go` |
+
+### Sample — state machine + Kafka
+
+| Layer | Path |
+|-------|------|
+| Entity + status constants | `internal/entity/sample/sample.go` |
+| Repository | `internal/repository/sample/` (`Add`, `GetByID`, `Update`) |
+| Orchestration | `internal/usecase/sample/saver.go` (`SampleService.Save`) |
+| State machine | `internal/usecase/sample/states/` |
+| Transition handlers | `on_open/`, `on_pending/`, `on_closed/` |
+| HTTP | `POST /samples`, `PUT /samples/:id` |
+| Kafka publisher | `internal/infrastructure/broker/kafka/sample_event_publisher.go` (payload: entity) |
+| Wire | `wireSampleService` in `internal/bootstrap/wire.go` |
 
 ## Required workflow
 
-1. Read the relevant doc(s) above.
-2. Follow existing naming and layer boundaries (`entity` → `repository` → `usecase` → `transport` → `bootstrap`).
-3. Wire new services in `internal/bootstrap/wire.go` and register routes in `internal/transport/apis/router.go`.
-4. Add GORM models to `internal/infrastructure/database/postgres/connection.go` `Migrate()` when adding tables.
-5. Run `go build ./...` (and `go vet ./...` when possible) before finishing.
+1. Read [docs/codegen.md](docs/codegen.md) and/or [docs/statemachine.md](docs/statemachine.md).
+2. Respect layer boundaries: `entity` → `repository` → `usecase` → `transport` → `bootstrap`.
+3. Usecase depends on **interfaces** only (repository, publisher, `begin.BeginRepository` / `TransactionManager`).
+4. Register routes in `internal/transport/apis/router.go`.
+5. Wire in `internal/bootstrap/wire.go` (`wire{Domain}Service`).
+6. Register GORM models in `internal/infrastructure/database/postgres/connection.go` → `Migrate()`.
+7. Finish with `go build ./...` (and `go vet ./...` when possible).
 
-## Conventions worth noting
+## Conventions
 
-- Domain **entity** packages may be plural (`users`) while **repository** folders are often singular (`user`) — match existing domains.
-- Usecase depends on **interfaces**, not postgres/kafka implementations.
-- Inject `begin.BeginRepository` into usecases that use DB transactions (`NewUserService`, sample `TransactionManager`).
-- Sample is the **end-to-end** state machine example: `POST /samples`, `PUT /samples/:id`.
+- **Entity package** may be plural (`users`); **repository folder** is often singular (`user`, `sample`).
+- **Transactions:** inject `begin.BeginRepository` — it matches sample’s `TransactionManager` (`Begin` / `Commit` / `Rollback`).
+- **Kafka — two patterns in this repo:**
+  - **Users:** dedicated event DTO in `internal/transport/event/events/`, typed producer.
+  - **Sample:** publish `entitysample.Sample` directly via `SampleEventPublisherKafka`.
+- **Publish errors:** `UserService` logs publish failures after commit; `SampleService.Save` **returns** publish error (stricter).
+- **State machine:** all status changes go through `states` + `Saver.Save`; never in HTTP handlers or repository shortcuts.
+
+## HTTP endpoints (existing)
+
+| Method | Path | Service |
+|--------|------|---------|
+| CRUD | `/users` | `UserService` |
+| Create / update workflow | `POST /samples`, `PUT /samples/:id` | `SampleService` |
+| Health | `GET /healthz` | — |
 
 ## Do not
 
-- Put GORM tags on `internal/entity/*`.
-- Put status transition logic in HTTP handlers.
-- Commit secrets or `.env` files.
+- Put GORM tags or DB logic in `internal/entity/*` (JSON tags on entity are OK when returned as API JSON, e.g. sample).
+- Put status transition logic in Echo handlers.
+- Import `postgres` repository implementations from `usecase` or `states` packages.
+- Commit `.env` or secrets.
+
+## Example agent prompts
+
+```text
+Read AGENTS.md and docs/codegen.md. Add domain "product" with HTTP CRUD and postgres repo. No Kafka. Run go build ./...
+```
+
+```text
+Read AGENTS.md, docs/codegen.md, and docs/statemachine.md. Add domain "order" with status workflow like sample. Wire Kafka. Reference internal/usecase/sample. Run go build ./...
+```

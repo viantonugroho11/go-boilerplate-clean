@@ -1,57 +1,58 @@
 # Codegen Prompt — go-boilerplate-clean
 
-This document is a **ready-to-use prompt** for AI/codegen when adding new features to this boilerplate. Follow existing repo conventions; do not change the architecture without a strong reason.
+Ready-to-use guidance for AI/codegen when adding features. Follow repo conventions; avoid architectural changes without good reason.
 
-**Module path:** `go-boilerplate-clean`
-
-**Reference implementations:**
-- Simple CRUD: `internal/usecase/users`, `internal/repository/user`, `internal/transport/apis`
-- State machine (full stack): `internal/usecase/sample`, `internal/repository/sample`, `POST/PUT /samples` → [statemachine.md](./statemachine.md)
-
+**Module path:** `go-boilerplate-clean`  
 **Agent entry point:** [AGENTS.md](../AGENTS.md)
+
+## Reference implementations
+
+| Pattern | Docs | Code | HTTP |
+|---------|------|------|------|
+| CRUD + Kafka event DTO | This file | `internal/usecase/users` | `/users` |
+| State machine + Kafka entity payload | [statemachine.md](./statemachine.md) | `internal/usecase/sample` | `POST/PUT /samples` |
 
 ---
 
 ## Prompt template (copy & fill placeholders)
 
 ```markdown
-You are adding a new feature to the Go repo `go-boilerplate-clean` (clean architecture).
+You are adding a feature to Go repo `go-boilerplate-clean` (clean architecture).
+Read AGENTS.md and docs/codegen.md first; if status/workflow, also docs/statemachine.md.
 
 ## Feature context
-- Domain name (snake_case): {domain}          # e.g. order, product
-- Entity name (PascalCase): {Entity}           # e.g. Order, Product
+- Domain (snake_case): {domain}
+- Entity (PascalCase): {Entity}
 - Operations: {create|read|update|delete|list|custom}
-- Needs DB transaction: {yes|no}
-- Needs Kafka/event publish: {yes|no}
-- Has status / workflow field: {yes|no}        # if yes, read docs/statemachine.md
+- DB transaction: {yes|no}
+- Kafka publish: {yes|no}
+- Status / workflow: {yes|no}
+- Money / amount fields: {yes|no}        # if yes, use shopspring/decimal (see § Money)
 
-## Required rules
-1. Follow folder structure and patterns in docs/codegen.md
-2. Usecase depends only on repository/publisher **interfaces**, not postgres/kafka implementations
-3. Domain entity in `internal/entity/{domain}/`, no GORM tags
-4. GORM model in `internal/repository/{domain}/model/`
-5. Echo handler in `internal/transport/apis/handler/`, DTO in `internal/transport/apis/dto/`
-6. Wire dependencies in `internal/bootstrap/wire.go` (or a separate wire function per domain)
-7. Every method takes `context.Context` as the first argument
-8. Business errors: `errors.New("clear message")` — do not expose DB details over HTTP
-9. Do not commit `.env` files or secrets
+## Rules
+1. Usecase → repository/publisher interfaces only
+2. Entity: internal/entity/{domain}/ (no GORM)
+3. GORM model: internal/repository/{domain}/model/
+4. HTTP: internal/transport/apis/handler/ + dto/
+5. Wire: internal/bootstrap/wire.go
+6. context.Context as first param on all methods
+7. Business errors: `internal/shared/apperrors` (not raw DB errors to HTTP)
+8. Money/amount: use `github.com/shopspring/decimal` — never `float32`/`float64`
+9. go build ./... must pass
 
-## Expected output
-Create/update these files (adjust the list to the feature):
+## Files (adjust to feature)
 - [ ] internal/entity/{domain}/{entity}.go
 - [ ] internal/repository/{domain}/{domain}_repository.go
 - [ ] internal/repository/{domain}/model/{entity}.go
 - [ ] internal/repository/{domain}/postgres/repository.go
-- [ ] internal/usecase/{domain}/{domain}_usecase.go (+ events.go if publishing)
-- [ ] internal/transport/apis/dto/{domain}_request.go
-- [ ] internal/transport/apis/handler/{domain}_handler.go
-- [ ] internal/transport/apis/router.go (register routes)
-- [ ] internal/bootstrap/wire.go (inject repo, publisher, usecase)
-- [ ] internal/transport/event/events/{domain}_events.go (if Kafka)
-- [ ] internal/infrastructure/broker/kafka/{domain}_event_publisher.go (if Kafka)
-- [ ] internal/usecase/{domain}/states/* + saver (if state machine)
-
-After generation, ensure `go build ./...` passes.
+- [ ] internal/usecase/{domain}/...
+- [ ] internal/transport/apis/dto/...
+- [ ] internal/transport/apis/handler/...
+- [ ] internal/transport/apis/router.go
+- [ ] internal/bootstrap/wire.go
+- [ ] internal/infrastructure/database/postgres/connection.go (Migrate)
+- [ ] Kafka: event DTO or publisher (see §5)
+- [ ] State machine: states/, saver, on_* (see statemachine.md)
 ```
 
 ---
@@ -61,16 +62,16 @@ After generation, ensure `go build ./...` passes.
 ```
 cmd/app/main.go
     └── internal/
-            ├── bootstrap/      # config, DB, redis, wire, HTTP server
-            ├── config/         # configuration loader (Viper / go-config-library)
-            ├── entity/         # domain model (pure, no GORM)
-            ├── usecase/        # business logic, validation, tx & event orchestration
-            ├── repository/     # interface + postgres impl + model mapping
-            ├── transport/      # HTTP (Echo), event (Kafka consumer)
-            └── infrastructure/ # DB, broker, cache connections
+            ├── bootstrap/      # config, DB, wire, HTTP, consumer
+            ├── config/
+            ├── entity/         # domain model (no GORM)
+            ├── usecase/
+            ├── repository/     # interface + model + postgres
+            ├── transport/      # apis (Echo), event (Kafka)
+            └── infrastructure/ # postgres, kafka, redis
 ```
 
-**Dependency direction:** `transport → usecase → repository (interface)`; `usecase` and `repository` import `entity`. Infrastructure is injected from bootstrap, not imported directly by usecase (except `*gorm.DB` via transaction parameters).
+**Dependencies:** `transport → usecase → repository (interface)`; both usecase and repository import `entity`. Infrastructure is wired in `bootstrap`, not imported by usecase (except `*gorm.DB` on transaction methods).
 
 ---
 
@@ -78,46 +79,99 @@ cmd/app/main.go
 
 | Item | Pattern | Example |
 |------|---------|---------|
-| Domain folder | lowercase singular (entity may be plural) | entity: `users`, repo: `user`, `sample` |
-| Entity package | same as folder | `package users` |
-| Entity struct | PascalCase | `User`, `Sample` |
-| Repository interface | `{Domain}Repository` | `UserRepository` |
-| Postgres implementation | `internal/repository/{domain}/postgres` | `NewUserRepository(db)` |
-| Usecase service | `{Domain}Service` + `New{Domain}Service` | `UserService` |
-| HTTP handler | `{Domain}Handler` | `UserHandler` |
-| Request DTO | `{Action}{Domain}Request` | `CreateUserRequest` |
-| Event payload | `{Domain}{Action}Event` | `UserCreatedEvent` |
+| Entity folder | often plural | `users` |
+| Repository folder | often singular | `user`, `sample` |
+| Repository interface | `{Domain}Repository` | `UserRepository`, `SampleRepository` |
+| Usecase service | `{Domain}Service` | `UserService`, `SampleService` |
+| Wire function | `wire{Domain}Service` | `wireUserService`, `wireSampleService` |
+| HTTP handler | `{Domain}Handler` | `UserHandler`, `SampleHandler` |
+| Request DTO | `{Action}{Domain}Request` or `Save{Domain}Request` | `CreateUserRequest`, `SaveSampleRequest` |
 | Status constant | `{Entity}Status{Name}` | `SampleStatusOpen` |
-
-Entity import alias (when package names collide):
 
 ```go
 userEntity "go-boilerplate-clean/internal/entity/users"
+entitysample "go-boilerplate-clean/internal/entity/sample"
 ```
 
 ---
 
 ## 1. Entity (`internal/entity/{domain}/`)
 
-- Domain struct **without** GORM / JSON tags unless the entity is returned directly in API responses.
-- Status/workflow constants live in the entity (see `internal/entity/sample/sample.go`).
-- No DB logic in the entity.
+- No GORM imports or DB logic.
+- Status/workflow constants live here for state-machine domains.
+- JSON tags are optional; `sample` uses them because handlers return the entity as JSON.
+
+---
+
+## Money, amount, and decimal
+
+For **money**, **price**, **amount**, **fee**, **tax**, **balance**, **quantity with fractional units**, or any value that must not lose precision, use **[shopspring/decimal](https://github.com/shopspring/decimal)** — not `float64`.
+
+| Do | Don't |
+|----|--------|
+| `decimal.Decimal` in entity & usecase | `float64` / `float32` for money |
+| `decimal.NewFromString("136.02")` for parsing | Binary float literals for currency |
+| `NUMERIC(p,s)` / `DECIMAL` in Postgres (GORM) | `float` column types in DB |
+| String in JSON API when needed (`"19.99"`) or decimal JSON support | Rely on float JSON encoding |
+
+**Install:** `go get github.com/shopspring/decimal`
+
+### Entity (`internal/entity/{domain}/`)
 
 ```go
-package sample
+import "github.com/shopspring/decimal"
 
-type Sample struct {
+type Order struct {
     ID     string
-    Status string
-    // ...
+    Amount decimal.Decimal // price, total, fee, etc.
+}
+```
+
+- Arithmetic: `amount.Mul(qty)`, `amount.Add(tax)`, `amount.Sub(discount)` — always produces new values (immutable).
+- Comparisons: `amount.Equal(other)`, `amount.GreaterThan(...)`.
+- Parsing user input in usecase/DTO: `decimal.NewFromString(s)` and return `apperrors.Validation(...)` on failure.
+
+### GORM model (`internal/repository/{domain}/model/`)
+
+```go
+import "github.com/shopspring/decimal"
+
+type Order struct {
+    Amount decimal.Decimal `gorm:"type:numeric(18,2);not null"`
+}
+```
+
+`shopspring/decimal` implements `sql.Scanner` and `driver.Valuer`, so GORM can persist it directly. Pick precision/scale to match business rules (e.g. `numeric(18,2)` for currency).
+
+### DTO / HTTP
+
+Prefer string amounts in requests to avoid float JSON issues:
+
+```go
+type CreateOrderRequest struct {
+    Amount string `json:"amount"` // "136.02"
 }
 
-const (
-    SampleStatusOpen   = "open"
-    SampleStatusOnHold = "on_hold"
-    SampleStatusClosed = "closed"
-)
+func (r *CreateOrderRequest) AmountDecimal() (decimal.Decimal, error) {
+    return decimal.NewFromString(r.Amount)
+}
 ```
+
+Or bind as `decimal.Decimal` if the API documents numeric JSON and you control clients.
+
+### Usecase
+
+- Perform all money math with `decimal.Decimal`.
+- Round explicitly when needed (`amount.Round(2)`) — do not assume float rounding.
+- When splitting amounts (e.g. divide by 3), allocate remainder explicitly (documented in decimal FAQ).
+
+### Checklist (money fields)
+
+- [ ] `github.com/shopspring/decimal` in `go.mod`
+- [ ] Entity & model use `decimal.Decimal`
+- [ ] Postgres column `numeric` / `decimal`, not `float`
+- [ ] DTO parsing validates format and returns validation errors
+- [ ] No `float64` in Kafka events for money (use string or decimal serialization)
 
 ---
 
@@ -125,28 +179,32 @@ const (
 
 ### Interface — `internal/repository/{domain}/{domain}_repository.go`
 
-- Every method: `(ctx context.Context, tx *gorm.DB, ...)`.
-- `tx` may be `nil` for reads outside a transaction (see `GetByID` / `List` in the user repo).
-- Return type: domain entity, not the GORM model.
+- Methods use `(ctx context.Context, tx *gorm.DB, ...)` when writing inside a transaction.
+- Reads outside a tx may omit `tx` (see `UserRepository.GetByID`, `SampleRepository.GetByID`).
+- Return domain entities, not GORM models.
+
+**Sample convention:** `Add`, `GetByID`, `Update` (repository implements `SampleAdder` / `SampleUpdater`; getter wraps `GetByID`).
 
 ### Model — `internal/repository/{domain}/model/`
 
-- Struct with GORM tags as needed.
-- Explicit `TableName()`.
-- `ToEntity(*Model) Entity` and `ToModel(Entity) Model`.
+- GORM tags, `TableName()`, `ToEntity`, `ToModel`.
 
 ### Postgres — `internal/repository/{domain}/postgres/repository.go`
 
-- Private struct `xxxRepository` with field `db *gorm.DB`.
-- Constructor: `NewXxxRepository(db *gorm.DB) xxx.XxxRepository`.
-- Create: generate UUID when ID is empty (`github.com/google/uuid`).
-- Update/Delete inside a transaction: require `tx != nil`, return an error otherwise.
-- `gorm.ErrRecordNotFound` → business error `"xxx not found"`.
+- `NewXxxRepository(db *gorm.DB)`
+- Create: UUID if ID empty
+- Writes: require `tx != nil`
+- `gorm.ErrRecordNotFound` → `"xxx not found"`
+
+### Migrate
+
+Add model to `Migrate()` in `internal/infrastructure/database/postgres/connection.go`:
+
+```go
+return db.AutoMigrate(&model.User{}, &samplemodel.Sample{})
+```
 
 ### Transactions — `internal/repository/begin/`
-
-- Use `begin.BeginRepository` for `Begin` / `Commit` / `Rollback`.
-- Usecase pattern (users):
 
 ```go
 tx, err := s.txManager.Begin(ctx)
@@ -156,43 +214,43 @@ defer func() {
         _ = s.txManager.Rollback(ctx, tx)
     }
 }()
-// ... repo operations with tx ...
+// repo calls with tx
 err = s.txManager.Commit(ctx, tx)
 ```
+
+`begin.BeginRepository` satisfies sample’s `TransactionManager` interface — wire it directly in `wireSampleService`.
 
 ---
 
 ## 3. Usecase (`internal/usecase/{domain}/`)
 
-### CRUD service (no state machine)
+### CRUD service (users)
 
-Example: `internal/usecase/users/user_usecase.go`
+- File: `{domain}_usecase.go`, optional `events.go` for publisher interface.
+- `NewUserService(repo, txManager, publisher)` — **must** pass `begin.BeginRepository`.
+- Validate in usecase; publish after commit; **log** publish errors (do not fail the HTTP response).
 
-- Public interface: `{Domain}Service` with business operations.
-- Private struct: `{domain}Service` — fields: repo, `txManager`, publisher (optional).
-- Constructor must inject `begin.BeginRepository` as `txManager` when using transactions (see `NewUserService`).
-- Validate input in the usecase (not in the handler).
-- After a successful commit, publish events; on publish failure **log only**, do not roll back the transaction (unless requirements say otherwise).
+### State machine service (sample)
 
-### Publisher interface — `events.go`
+- `SampleService` with `Save(ctx, sample)` — see [statemachine.md](./statemachine.md).
+- `NewSampleSaver(factory, txManager, adder, getter, updater, publisher)`.
+- Publish after commit; **return** publish error to caller (stricter than users).
+
+### Publisher interface (in usecase package)
 
 ```go
+// users/events.go
 type UserEventPublisher interface {
     PublishUser(ctx context.Context, user userEntity.User) error
 }
+
+// sample — interface in saver.go
+type SamplePublisher interface {
+    Publish(ctx context.Context, sample entitysample.Sample) error
+}
 ```
 
-Kafka implementation lives in `internal/infrastructure/broker/kafka/` and implements the usecase interface.
-
-### Usecase with state machine
-
-Do not put status transition logic in the handler. Use:
-
-- `Saver` / orchestration service: `internal/usecase/sample/saver.go`
-- State machine: `internal/usecase/{domain}/states/`
-- Per-transition handlers: `internal/usecase/{domain}/on_{state}/`
-
-Full details: [statemachine.md](./statemachine.md).
+Implementations: `internal/infrastructure/broker/kafka/`.
 
 ---
 
@@ -200,46 +258,69 @@ Full details: [statemachine.md](./statemachine.md).
 
 ### DTO — `internal/transport/apis/dto/`
 
-- Request structs with `json` tags.
-- `ToEntity()` method to map to the entity (no ID on create).
+- `json` tags on requests; `ToEntity()` without ID on create.
 
 ### Handler — `internal/transport/apis/handler/`
 
-- Inject `{Domain}Service` via constructor.
-- `c.Bind(&req)` → validation failure → `400`.
-- Call usecase with `c.Request().Context()`.
-- HTTP status mapping: create `201`, get/list/update `200`, delete `204`, not found `404`, validation/business `400`.
+- Inject service via constructor.
+- `c.Bind` → `400` on failure.
+- `c.Request().Context()` into usecase.
+- Status: `201` create, `200` OK, `204` delete, `404` not found, `400` business/validation.
 
 ### Router — `internal/transport/apis/router.go`
 
-- Route group: `e.Group("/{plural}")`.
-- Register in `RegisterRoutes(e, services...)`.
+```go
+func RegisterRoutes(e *echo.Echo, userService users.UserService, sampleService usecasesample.SampleService)
+```
+
+Add groups and pass services from `bootstrap/server.go`.
 
 ---
 
-## 5. Kafka events (optional)
+## 5. Kafka (optional)
+
+| Style | Used by | Event type | Publisher |
+|-------|---------|------------|-----------|
+| Dedicated event DTO | users | `events.UserCreatedEvent` | `user_event_publisher.go` |
+| Domain entity as payload | sample | `entitysample.Sample` | `sample_event_publisher.go` |
+
+Shared setup in `wire.go`:
+
+```go
+producer, err := kafka.NewProducer[T](
+    cfg.KafkaBrokersList(),
+    cfg.Kafka.Topic,
+    kafka.WithKeyFunc[T](func(e T) []byte { return []byte(e.ID) }),
+    kafka.WithIdempotent(),
+    kafka.WithRetryMax(5),
+)
+```
 
 | Layer | Path |
 |-------|------|
-| Payload | `internal/transport/event/events/{domain}_events.go` |
-| Publisher impl | `internal/infrastructure/broker/kafka/{domain}_event_publisher.go` |
-| Consumer handler | `internal/transport/event/kafka/` |
-| Consumer wiring | `internal/bootstrap/consumer.go`, `cmd/consumer/main.go` |
+| Event DTO (if used) | `internal/transport/event/events/{domain}_events.go` |
+| Publisher | `internal/infrastructure/broker/kafka/{domain}_event_publisher.go` |
+| Consumer | `internal/transport/event/kafka/`, `internal/bootstrap/consumer.go` |
 
-Producer uses `github.com/viantonugroho11/go-lib/kafka` — see `internal/bootstrap/wire.go`.
+Producer library: `github.com/viantonugroho11/go-lib/kafka`.
 
 ---
 
 ## 6. Bootstrap wiring
 
-- `internal/bootstrap/app.go` — init order: config → DB → wire services → redis → HTTP.
-- Add `wire{Domain}Service(db)` in `wire.go`:
-  1. Postgres repo
-  2. Kafka producer + publisher (if needed)
-  3. `New{Domain}Service(...)`
-  4. Return `(Service, cleanup func(), error)`
+**App** (`internal/bootstrap/app.go`): config → DB → `wireUserService` → `wireSampleService` → redis → HTTP.
 
-See `wireSampleService` in `internal/bootstrap/wire.go` for the full sample stack (repo, factory, saver, routes).
+**Users** — `wireUserService(db)` returns `(UserService, cleanup, error)`; closes Kafka producer on shutdown.
+
+**Sample** — `wireSampleService(db)`:
+
+1. `samplepg.NewSampleRepository(db)`
+2. `beginpg.NewBeginRepository(db)` as `TransactionManager`
+3. `states.NewSampleStateMachineFactory(on_open, on_pending, on_closed)`
+4. Kafka producer + `NewSampleEventPublisherKafka`
+5. `NewSampleSaver(...)` → `SampleService`
+
+Also update `internal/bootstrap/consumer.go` if the new domain needs consumer wiring.
 
 ---
 
@@ -247,16 +328,19 @@ See `wireSampleService` in `internal/bootstrap/wire.go` for the full sample stac
 
 - [ ] `go build ./...`
 - [ ] `go vet ./...`
-- [ ] Routes registered & handlers wired
-- [ ] Repository interface does not depend on the postgres package
-- [ ] Entity does not import GORM
-- [ ] Transactions: defer rollback only on error (follow existing pattern)
-- [ ] Status/workflow: follow [statemachine.md](./statemachine.md)
+- [ ] Routes + `RegisterRoutes` signature updated
+- [ ] `wire{Domain}Service` added; `app.go` / `server.go` pass new service
+- [ ] `AutoMigrate` includes new model
+- [ ] `txManager` injected where transactions are used
+- [ ] State machine domains: [statemachine.md](./statemachine.md)
+- [ ] Money fields use `shopspring/decimal`, not float
 
 ---
 
-## Short AI command examples
+## AI command examples
 
-> "Add domain **product** with HTTP CRUD, postgres repository, no Kafka. Follow docs/codegen.md."
+> Read AGENTS.md and docs/codegen.md. Add **product** with HTTP CRUD and postgres, no Kafka.
 
-> "Add domain **order** with a **status** field, save via state machine. Follow docs/codegen.md and docs/statemachine.md; reference: internal/usecase/sample."
+> Read AGENTS.md, docs/codegen.md, and docs/statemachine.md. Add **order** with status workflow like **sample**, including Kafka and POST/PUT routes.
+
+> Add **invoice** with fields `amount` and `tax` using shopspring/decimal per docs/codegen.md (§ Money). Postgres numeric(18,2), no float64.

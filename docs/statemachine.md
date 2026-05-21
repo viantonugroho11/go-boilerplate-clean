@@ -1,169 +1,171 @@
 # State Machine Codegen — go-boilerplate-clean
 
-Rules for generating a **state machine** for entities with a `status` field (or similar workflow). Reference implementation:
+Generate **status workflows** for entities with a `status` field. This repo’s full reference is **sample** (wired, HTTP, DB, Kafka).
+
+**Module path:** `go-boilerplate-clean`  
+**Also read:** [codegen.md](./codegen.md), [AGENTS.md](../AGENTS.md)
+
+---
+
+## Reference layout (sample — complete)
 
 ```
+internal/entity/sample/sample.go          # entity + SampleStatus* constants
+
+internal/repository/sample/
+├── sample_repository.go                # Add, GetByID, Update
+├── model/sample.go
+└── postgres/repository.go
+
 internal/usecase/sample/
-├── saver.go              # orchestration: tx + state machine + persist + publish
-├── getter.go             # (placeholder — implement when repo exists)
+├── saver.go                            # SampleService, interfaces, Save()
+├── getter.go                           # SampleGetter → repo.GetByID
+├── errors.go
 ├── states/
-│   ├── state.go          # factory, interfaces, main machine
-│   ├── open.go           # state: open
-│   ├── on_hold.go        # state: on_hold
-│   └── closed.go         # state: closed
-└── on_open/
-    └── on_open.go        # transition handler (IOnStateTransition)
-```
+│   ├── state.go                        # factory, ISampleState*, stateMachineSample
+│   ├── open.go
+│   ├── on_hold.go
+│   └── closed.go
+├── on_open/on_open.go                  # IOnStateTransition (creation / stay open)
+├── on_pending/on_pending.go            # → on_hold
+└── on_closed/on_closed.go              # → closed
 
-Entity & status constants: `internal/entity/sample/sample.go`
+internal/infrastructure/broker/kafka/sample_event_publisher.go
+
+internal/transport/apis/
+├── dto/sample_request.go
+├── handler/sample_handler.go           # Create, Update → Save()
+└── router.go                           # POST /samples, PUT /samples/:id
+
+internal/bootstrap/wire.go                # wireSampleService
+```
 
 ---
 
 ## When to use a state machine
 
-Use this pattern when:
+Use when:
 
-- The entity has a **status** that changes according to business rules (not a free-form field update).
-- Status transitions have **different side effects** per target status (validation, notifications, recalculation, etc.).
-- Save/create must be **atomic** inside a DB transaction.
+- **Status** changes follow business rules (not arbitrary field patches).
+- Transitions need **different side effects** per target status.
+- Save must be **atomic** (DB transaction).
 
-Do not use a state machine for plain CRUD without workflow — usecase + repository is enough (see `internal/usecase/users`).
+Skip for plain CRUD — use `internal/usecase/users` only.
 
-**End-to-end reference in this repo:** `POST /samples`, `PUT /samples/:id`, wired in `internal/bootstrap/wire.go` → `wireSampleService`.
+**Live API:** `POST /samples`, `PUT /samples/:id` via `SampleService.Save`.
 
 ---
 
 ## Create vs update
 
-| Path | Request | `current` in factory | `storeFunc` | ID |
-|------|---------|----------------------|-------------|-----|
-| **Create** | `POST /samples`, body without `id` | `&sample` from request (no ID yet) | `adder.Add` | Generated in repository on persist |
-| **Update** | `PUT /samples/:id` | Loaded via `getter.Get(id)` | `updater.Update` | Required in URL / entity |
+| Path | HTTP | `current` for factory | Persist | ID |
+|------|------|------------------------|---------|-----|
+| **Create** | `POST /samples` | `&request` (no ID) | `adder.Add` | UUID in repo `Add` |
+| **Update** | `PUT /samples/:id` | `getter.Get(id)` from DB | `updater.Update` | From URL |
 
-Rules for `NewStateMachine(ctx, current)`:
+Factory rules (`NewStateMachine(ctx, current)`):
 
-1. **Do not require ID on create** — empty `current.ID` is valid; the repository assigns a UUID in `Add`.
-2. **Default status** — if `current.Status` is empty, set `open` (or your initial status) in the factory before `switch current.Status`.
-3. **Run the state machine inside the transaction** before `Add`/`Update`, so transition side effects roll back on failure.
-4. **Publish events after commit** (see `saver.go`).
-
-`Save` flow (simplified):
+1. **Empty ID is valid on create** — do not require ID before `Add`.
+2. **Default status** — if `current.Status == ""`, set initial status (e.g. `open`) before `switch current.Status`.
+3. **State machine runs inside the transaction**, before `Add`/`Update`.
+4. **Publish after commit** — sample returns publish errors to the client.
 
 ```
-ID set? → getter.Get → current
-current nil? → create: current = &request, storeFunc = Add
-else → update: storeFunc = Update
-NewStateMachine(current) → Begin tx → Do → Add/Update → Commit → Publish
+Save:
+  ID set? → getter.Get → current
+  current nil? → create: current = &request, storeFunc = Add
+  else → update: storeFunc = Update
+  NewStateMachine(current)
+  Begin → Do → Add/Update → Commit → Publish
 ```
 
 ---
 
-## Status diagram (Sample example)
+## Status diagram (sample)
 
 ```mermaid
 stateDiagram-v2
-    [*] --> open: create (status open / default)
-    open --> on_hold: transition to on_hold
-    open --> closed: transition to closed
-    on_hold --> closed: transition to closed
-    on_hold --> on_hold: update without status change
-    closed --> closed: terminal (onClosed handler only)
+    [*] --> open: POST /samples
+    open --> on_hold: status on_hold
+    open --> closed: status closed
+    on_hold --> closed: status closed
+    on_hold --> on_hold: update, same status
+    closed --> closed: terminal
 ```
 
-Constants in the entity:
-
-| Constant | String value |
-|----------|--------------|
+| Constant | Value |
+|----------|-------|
 | `SampleStatusOpen` | `open` |
 | `SampleStatusOnHold` | `on_hold` |
 | `SampleStatusClosed` | `closed` |
 
----
+### Transition routing (from `open` state)
 
-## Folder structure for a new domain `{domain}`
-
-Replace `Sample` / `sample` with your domain name.
-
-```
-internal/usecase/{domain}/
-├── saver.go                    # {Domain}Saver — Save() entry point
-├── getter.go                   # load current record (for updates)
-├── states/
-│   ├── state.go                # factory + stateMachine{Domain}
-│   ├── {state_a}.go            # one file per status
-│   └── ...
-└── on_{transition_name}/       # optional, one package per transition handler
-    └── on_{transition_name}.go
-```
+| Request `status` | Handler |
+|------------------|---------|
+| `on_hold` | `onPending` → `on_pending` package |
+| `closed` | `onClosed` → `on_closed` package |
+| default / `open` | `onCreation` → `on_open` package |
 
 ---
 
-## State machine prompt template
+## Prompt template
 
 ```markdown
-Generate a state machine for domain `{domain}` in go-boilerplate-clean.
+Generate a state machine for `{domain}` in go-boilerplate-clean.
+Read docs/statemachine.md and mirror internal/usecase/sample.
 
-## Status & transitions
-| Current status | Target status (from request) | Transition handler |
-|----------------|------------------------------|--------------------|
-| {current}      | {target}                     | on{Transition}     |
-| ...            | ...                          | ...                |
+## Transitions
+| From (current) | To (request status) | Handler package |
+|----------------|---------------------|-----------------|
+| {from}         | {to}                | on_{name}/      |
 
 ## Entity
-- Entity path: internal/entity/{domain}/{entity}.go
-- Status constants: {Entity}Status{Name} = "{value}"
+- internal/entity/{domain}/{entity}.go
+- Constants: {Entity}Status{Name} = "{value}"
 
-## Rules
-Follow docs/statemachine.md and the pattern in internal/usecase/sample/states/*.
-
-## Output files
-- internal/usecase/{domain}/saver.go
-- internal/usecase/{domain}/states/state.go
-- internal/usecase/{domain}/states/{per_status}.go
-- internal/usecase/{domain}/on_*/ (IOnStateTransition handlers)
-- Wire factory in internal/bootstrap/wire.go
+## Deliverables
+- internal/repository/{domain}/ (Add, GetByID, Update)
+- internal/usecase/{domain}/saver.go, getter.go, states/*, on_*/
+- internal/transport/apis/ (Save DTO, handler, routes)
+- internal/bootstrap/wire.go → wire{Domain}Service
+- AutoMigrate new model
+- Kafka publisher (optional): follow sample or user event DTO pattern
+- go build ./...
 ```
 
 ---
 
 ## Core interfaces (`states/state.go`)
 
-### 1. `I{Domain}State`
-
-A concrete state executes `Do` for transitions from that status.
+### `ISampleState` / `ISampleStateMachine`
 
 ```go
 type ISampleState interface {
     Do(ctx context.Context, tx *gorm.DB, update sample.Sample) (sample.Sample, error)
 }
-```
 
-### 2. `I{Domain}StateMachine`
-
-Machine + access to current data after transition.
-
-```go
 type ISampleStateMachine interface {
     ISampleState
     Sample() *sample.Sample
 }
 ```
 
-### 3. Factory (called from saver)
-
-The factory implements `NewStateMachine(ctx, current)` (no `tx` — transaction is passed into `Do`):
-
-In saver, the interface is:
+### Factory (wired from saver)
 
 ```go
+// states package — implemented by stateMachineFactorySample
+NewStateMachine(ctx context.Context, current *sample.Sample) (ISampleStateMachine, error)
+
+// saver.go — dependency
 type NewSampleStateMachine interface {
     NewStateMachine(ctx context.Context, current *entitysample.Sample) (states.ISampleStateMachine, error)
 }
 ```
 
-### 4. `IOnStateTransition`
+Transaction `tx` is passed to `Do`, not to `NewStateMachine`.
 
-Side-effect / validation handler per **transition type** (not per state file):
+### `IOnStateTransition`
 
 ```go
 type IOnStateTransition interface {
@@ -171,200 +173,113 @@ type IOnStateTransition interface {
 }
 ```
 
-Factory handler naming in sample (adapt to your business):
+| Factory arg | Package | Role |
+|-------------|---------|------|
+| `onCreation` | `on_open` | default / stay in `open` |
+| `onPending` | `on_pending` | target `on_hold` |
+| `onClosed` | `on_closed` | target `closed` |
 
-| Factory field | Example semantics |
-|---------------|-------------------|
-| `onCreation` | stay / update in initial status (open → open) |
-| `onPending` | move to waiting status (`on_hold`) |
-| `onClosed` | close / terminal (`closed`) |
-
-Minimal implementation (pass-through): `internal/usecase/sample/on_open/on_open.go`
-
----
-
-## Factory & machine (`state.go`)
-
-### `stateMachine{Domain}`
-
-- Field `data *entity.{Entity}` — current snapshot.
-- Field `current I{Domain}State` — active state.
-- Field per status: `open`, `onHold`, `closed`, ... (private typed structs).
-
-### `New{Domain}StateMachineFactory(...)`
-
-- Accept all required `IOnStateTransition` handlers.
-- `NewStateMachine(ctx, current)`:
-  1. Initialize all state structs, set `stateMachine: sm`.
-  2. Default `current.Status` to the initial status if empty.
-  3. `switch current.Status` → set `sm.current` (empty ID is OK for create).
-  4. Unknown status → `fmt.Errorf("unknown status: %s", ...)`.
-
-### `Do` on the machine
-
-Delegate to the current state:
+Wire in `wireSampleService`:
 
 ```go
-func (s stateMachineSample) Do(ctx context.Context, tx *gorm.DB, update sample.Sample) (sample.Sample, error) {
-    return s.current.Do(ctx, tx, update)
-}
-```
-
----
-
-## Per-state implementation (`open.go`, `on_hold.go`, ...)
-
-Required pattern in every state file:
-
-1. Private struct with `stateMachine *stateMachine{Domain}`.
-2. References to transition handlers (`onCreation`, `onPending`, `onClosed`, ...).
-3. In `Do`:
-   - Set `s.stateMachine.data = &update` (mutate machine data).
-   - `switch update.Status` (**target** status from the request) → call the matching handler.
-   - Default branch → “stay in this state” / creation handler.
-
-Example `open` (`internal/usecase/sample/states/open.go`):
-
-```go
-switch update.Status {
-case sample.SampleStatusOnHold:
-    return s.onPending.OnStateTransition(ctx, tx, update)
-case sample.SampleStatusClosed:
-    return s.onClosed.OnStateTransition(ctx, tx, update)
-default:
-    return s.onCreation.OnStateTransition(ctx, tx, update)
-}
-```
-
-Example `closed` (terminal):
-
-```go
-return s.onClosed.OnStateTransition(ctx, tx, update)
-```
-
-**Codegen rule:** every allowed `(currentStatus, targetStatus)` pair must have a `switch` branch or handler; illegal transitions return an error from `OnStateTransition`, not from the HTTP handler.
-
----
-
-## Saver / orchestration (`saver.go`)
-
-`Save(ctx, entity)` flow:
-
-```
-1. If ID is set → getter.Get(current)
-2. If current is nil → create path (storeFunc = adder.Add)
-   else → update path (storeFunc = updater.Update)
-3. stateMachine := factory.NewStateMachine(ctx, current)
-4. tx := txManager.Begin(ctx)
-5. updated := stateMachine.Do(ctx, tx, sample)
-6. updated = storeFunc(ctx, tx, updated)   // persist
-7. txManager.Commit(ctx, tx)
-8. publisher.Publish(ctx, updated)           // optional, after commit
-```
-
-Interfaces defined in the usecase package (dependency inversion):
-
-| Interface | Role |
-|-----------|------|
-| `SampleAdder` | insert new row |
-| `SampleGetter` | load by ID |
-| `SampleUpdater` | update row |
-| `NewSampleStateMachine` | state machine factory |
-| `SamplePublisher` | event after success |
-| `TransactionManager` | begin / commit / rollback |
-
-Constructor: `NewSampleSaver(...)` — inject all dependencies.
-
-**Important:** the state machine runs **inside the transaction**, before `adder`/`updater`, so rollback covers transition side effects.
-
----
-
-## Status → state file mapping
-
-| `current.Status` (from DB) | State file | Struct |
-|---------------------------|------------|--------|
-| `open` | `states/open.go` | `open` |
-| `on_hold` | `states/on_hold.go` | `onHold` |
-| `closed` | `states/closed.go` | `closed` |
-
-When adding a new status:
-
-1. Add constants in `internal/entity/{domain}/`.
-2. Add `states/{status}.go`.
-3. Add a field on `stateMachine{Domain}` + initialize it in the factory.
-4. Add a `case` in `switch current.Status`.
-5. Update `switch update.Status` in states that may transition to the new status.
-
----
-
-## Transition handlers (`on_*` packages)
-
-- One struct per handler, implements `IOnStateTransition`.
-- Constructor: `NewOnOpen() *onOpen`.
-- `OnStateTransition`: business validation, mutate entity fields, return updated entity.
-- May use `tx` for extra queries in the same transaction.
-
-Example layout for domain `order`:
-
-```
-internal/usecase/order/on_submit/on_submit.go   # OrderStatusSubmitted
-internal/usecase/order/on_cancel/on_cancel.go   # OrderStatusCancelled
-```
-
-Wire handlers into the factory:
-
-```go
-states.NewOrderStateMachineFactory(
+states.NewSampleStateMachineFactory(
     on_open.NewOnOpen(),
-    on_submit.NewOnSubmit(),
-    on_cancel.NewOnCancel(),
+    on_pending.NewOnPending(),
+    on_closed.NewOnClosed(),
 )
 ```
 
 ---
 
-## State machine codegen checklist
+## Per-state file pattern
 
-- [ ] Status constants in `internal/entity/{domain}/`
-- [ ] `states/state.go`: interfaces + factory + `stateMachine{Domain}`
-- [ ] One file per status under `states/`
-- [ ] Complete `switch current.Status` in the factory
-- [ ] `switch update.Status` in each state — only allowed transitions
-- [ ] `IOnStateTransition` handlers for side effects / validation
-- [ ] `saver.go` with transaction + persist + publish
-- [ ] Repository `adder`/`getter`/`updater` implement saver interfaces
-- [ ] Bootstrap: wire factory → saver → HTTP handler (if endpoint exists)
-- [ ] Illegal transitions return a clear error (no panic)
-- [ ] `go build ./...` passes
+1. Private struct + `stateMachine *stateMachineSample` + transition handlers.
+2. In `Do`: `s.stateMachine.data = &update`.
+3. `switch update.Status` (target from request) → call `OnStateTransition`.
+4. Illegal transitions: return error inside handler, not in HTTP layer.
 
 ---
 
-## Anti-patterns (do not generate)
+## Saver interfaces (`saver.go`)
+
+| Interface | Implementation in sample |
+|-----------|---------------------------|
+| `SampleAdder` | `SampleRepository.Add` |
+| `SampleGetter` | `NewSampleGetter(repo)` |
+| `SampleUpdater` | `SampleRepository.Update` |
+| `NewSampleStateMachine` | `stateMachineFactorySample` |
+| `TransactionManager` | `begin.BeginRepository` |
+| `SamplePublisher` | `SampleEventPublisherKafka` |
+| `SampleService` | `sampleSaver.Save` |
+
+**Transaction defer:** rollback only when `err != nil` after `Begin` (same pattern as users).
+
+**Publish:** after successful `Commit`; failure fails `Save` (unlike users which only log).
+
+---
+
+## HTTP layer
+
+**DTO** (`SaveSampleRequest`): `code`, `name`, `email`, `status` → `ToEntity()`.
+
+**Handler:** bind DTO → `service.Save(ctx, entity)`; set `entity.ID` from path on update.
+
+Do not branch on status in the handler.
+
+---
+
+## Bootstrap (`wireSampleService`)
+
+```go
+sampleRepo := samplepg.NewSampleRepository(db)
+txManager := beginpg.NewBeginRepository(db)
+factory := states.NewSampleStateMachineFactory(...)
+publisher := kafkainfra.NewSampleEventPublisherKafka(producer)
+return usecasesample.NewSampleSaver(factory, txManager, sampleRepo, getter, sampleRepo, publisher)
+```
+
+Register in `app.go` and pass to `newEcho(userService, sampleService)`.
+
+---
+
+## New domain checklist
+
+- [ ] Status constants in `internal/entity/{domain}/`
+- [ ] Repository: `Add`, `GetByID`, `Update` + `AutoMigrate`
+- [ ] `states/state.go` + one file per status
+- [ ] `on_*` handlers for each transition type
+- [ ] `saver.go`: interfaces + `Save` orchestration
+- [ ] `getter.go` wrapping repository
+- [ ] HTTP: DTO, handler (`POST` + `PUT`), `router.go`
+- [ ] `wire{Domain}Service` + `app.go` / `server.go`
+- [ ] Kafka publisher (if required)
+- [ ] `go build ./...`
+
+---
+
+## Anti-patterns
 
 | Don't | Do |
 |-------|-----|
-| Status transition logic in Echo handler | Handler only binds DTO → calls `Saver.Save` / service |
-| Import `postgres` in the `states` package | States only know entity + `gorm.DB` tx |
-| Change status directly in repository without state machine | All status changes go through `Do` |
-| One giant file for all states | Split per status + `state.go` |
-| Forget to set `stateMachine.data` in `Do` | Always update the data pointer at the start of `Do` |
+| Status logic in Echo handler | `handler` → `Save` only |
+| `postgres` import in `states` | entity + `gorm.DB` only |
+| Set `status` in repository | status via state machine `Do` |
+| One huge `states` file | split per status + `state.go` |
+| Skip `stateMachine.data = &update` in `Do` | always assign at start of `Do` |
+| Require ID in factory on create | allow empty ID; UUID on `Add` |
 
 ---
 
-## AI command examples
+## AI examples
 
-> "Build an **order** state machine with statuses `draft`, `submitted`, `cancelled`. Transitions: draft→submitted, draft→cancelled, submitted→cancelled. Follow docs/statemachine.md and internal/usecase/sample."
+> Build **order** state machine: `draft` → `submitted` → `cancelled`. Follow docs/statemachine.md and `internal/usecase/sample`. Wire HTTP and Kafka.
 
-> "Add status `archived` to the sample state machine: only from `closed`, handler `on_archived`. Update entity constants and all switches in states/."
+> Add `archived` to **sample**: only from `closed`, new `on_archived` handler, update entity constants and all `switch`es.
 
 ---
 
-## Relationship to general codegen
+## Related
 
-The state machine is **part of the usecase**, not a separate layer. For new workflow features, always combine:
-
-1. [codegen.md](./codegen.md) — entity, repo, transport, wire  
-2. This document — `states/`, `saver`, transition handlers  
-
-Full orchestration reference: `internal/usecase/sample/saver.go`  
-Factory reference: `internal/usecase/sample/states/state.go`
+- [codegen.md](./codegen.md) — layers, Kafka styles, bootstrap  
+- [AGENTS.md](../AGENTS.md) — agent entry point and file map  
+- Code: `internal/usecase/sample/saver.go`, `internal/usecase/sample/states/state.go`
