@@ -1,9 +1,9 @@
 package bootstrap
 
 import (
+	entitysample "go-boilerplate-clean/internal/entity/sample"
 	kafkainfra "go-boilerplate-clean/internal/infrastructure/broker/kafka"
 	beginpg "go-boilerplate-clean/internal/repository/begin/postgres"
-	entitysample "go-boilerplate-clean/internal/entity/sample"
 	samplepg "go-boilerplate-clean/internal/repository/sample/postgres"
 	userpg "go-boilerplate-clean/internal/repository/user/postgres"
 	"go-boilerplate-clean/internal/transport/event/events"

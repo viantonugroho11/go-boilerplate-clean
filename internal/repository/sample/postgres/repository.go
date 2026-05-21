@@ -21,6 +21,13 @@ func NewSampleRepository(db *gorm.DB) reposample.SampleRepository {
 	return &sampleRepository{db: db}
 }
 
+func (r *sampleRepository) dbOrTx(tx *gorm.DB) *gorm.DB {
+	if tx != nil {
+		return tx
+	}
+	return r.db
+}
+
 func (r *sampleRepository) Add(ctx context.Context, tx *gorm.DB, sample entitysample.Sample) (entitysample.Sample, error) {
 	if tx == nil {
 		return entitysample.Sample{}, errors.New("transaction is required")
@@ -38,9 +45,9 @@ func (r *sampleRepository) Add(ctx context.Context, tx *gorm.DB, sample entitysa
 	return model.ToEntity(&m), nil
 }
 
-func (r *sampleRepository) GetByID(ctx context.Context, id string) (*entitysample.Sample, error) {
+func (r *sampleRepository) GetByID(ctx context.Context, tx *gorm.DB, id string) (*entitysample.Sample, error) {
 	var m model.Sample
-	err := r.db.WithContext(ctx).First(&m, "id = ?", id).Error
+	err := r.dbOrTx(tx).WithContext(ctx).Where("id = ?", id).First(&m).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, apperrors.ErrSampleNotFound
 	}
@@ -65,7 +72,7 @@ func (r *sampleRepository) Update(ctx context.Context, tx *gorm.DB, sample entit
 		return entitysample.Sample{}, err
 	}
 	var m model.Sample
-	if err := tx.WithContext(ctx).First(&m, "id = ?", sample.ID).Error; err != nil {
+	if err := r.dbOrTx(tx).WithContext(ctx).Where("id = ?", sample.ID).First(&m).Error; err != nil {
 		return entitysample.Sample{}, err
 	}
 	return model.ToEntity(&m), nil

@@ -110,15 +110,16 @@ Read AGENTS.md and docs/codegen.md first; if status/workflow, also docs/statemac
 
 ## Rules
 1. Schema from `database/*.sql`; HTTP from `database/openapi.yaml` (do not guess)
-2. Usecase → repository/publisher interfaces only
+2. Usecase → repository/publisher interfaces only; pass `tx *gorm.DB` on repo calls inside transactions (reads and writes)
 3. Entity: internal/entity/{domain}/ (no GORM)
 4. GORM model: internal/repository/{domain}/model/ (match SQL types)
 5. HTTP: handler + dto aligned with `openapi.yaml` `operationId` and schemas
 6. Wire: internal/bootstrap/wire.go
 7. context.Context as first param on all methods
-8. Business errors: `internal/shared/apperrors` + `internal/shared/response`
-9. Money/amount: `github.com/shopspring/decimal` — map from SQL `NUMERIC` (see § Money)
-10. go build ./... must pass
+8. Repository: **every** method `(ctx, tx *gorm.DB, ...)` — reads included; usecase passes `tx` from `Begin`
+9. Business errors: `internal/shared/apperrors` + `internal/shared/response`
+10. Money/amount: `github.com/shopspring/decimal` — map from SQL `NUMERIC` (see § Money)
+11. go build ./... must pass
 
 ## Files (adjust to feature)
 - [ ] internal/entity/{domain}/{entity}.go
@@ -151,7 +152,7 @@ cmd/app/main.go
             └── infrastructure/ # postgres, kafka, redis
 ```
 
-**Dependencies:** `transport → usecase → repository (interface)`; both usecase and repository import `entity`. Infrastructure is wired in `bootstrap`, not imported by usecase (except `*gorm.DB` on transaction methods).
+**Dependencies:** `transport → usecase → repository (interface)`; both usecase and repository import `entity`. Infrastructure is wired in `bootstrap`, not imported by usecase. Every repository method accepts `*gorm.DB`; usecase passes `tx` from `begin.BeginRepository`.
 
 ---
 
@@ -260,13 +261,60 @@ Or bind as `decimal.Decimal` if the API documents numeric JSON and you control c
 
 ## 2. Repository
 
-### Interface — `internal/repository/{domain}/{domain}_repository.go`
+### Parameter `tx` + helper `dbOrTx` (golden reference: sample)
 
-- Methods use `(ctx context.Context, tx *gorm.DB, ...)` when writing inside a transaction.
-- Reads outside a tx may omit `tx` (see `UserRepository.GetByID`, `SampleRepository.GetByID`).
+**Every repository interface method must accept `tx *gorm.DB`** (reads and writes). In the Postgres implementation, use the **`dbOrTx`** helper:
+
+| `tx` | Behavior |
+|------|----------|
+| `tx != nil` | Run queries on the active transaction (read/write inside `Begin` … `Commit`) |
+| `tx == nil` | Fall back to `r.db` (reads outside a transaction, e.g. `UserService.GetByID` → `repo.GetByID(ctx, nil, id)`) |
+
+**Writes** (`Create`, `Add`, `Update`, `Delete`): still **require** `tx != nil` in the implementation (do not fall back to `r.db` for mutations).
+
+```go
+func (r *sampleRepository) dbOrTx(tx *gorm.DB) *gorm.DB {
+    if tx != nil {
+        return tx
+    }
+    return r.db
+}
+```
+
+**Example interface + read (`internal/repository/sample/`):**
+
+```go
+type SampleRepository interface {
+    Add(ctx context.Context, tx *gorm.DB, sample entitysample.Sample) (entitysample.Sample, error)
+    GetByID(ctx context.Context, tx *gorm.DB, id string) (*entitysample.Sample, error)
+    Update(ctx context.Context, tx *gorm.DB, sample entitysample.Sample) (entitysample.Sample, error)
+}
+```
+
+```go
+func (r *sampleRepository) GetByID(ctx context.Context, tx *gorm.DB, id string) (*entitysample.Sample, error) {
+    var m model.Sample
+    err := r.dbOrTx(tx).WithContext(ctx).Where("id = ?", id).First(&m).Error
+    if errors.Is(err, gorm.ErrRecordNotFound) {
+        return nil, apperrors.ErrSampleNotFound
+    }
+    if err != nil {
+        return nil, err
+    }
+    s := model.ToEntity(&m)
+    return &s, nil
+}
+```
+
+- Models with `gorm.DeletedAt`: GORM `First` / `Find` already exclude soft-deleted rows; add `AND deleted_at IS NULL` only for raw SQL or when not using GORM soft delete.
 - Return domain entities, not GORM models.
 
-**Sample convention:** `Add`, `GetByID`, `Update` (repository implements `SampleAdder` / `SampleUpdater`; getter wraps `GetByID`).
+**Users:** same `(ctx, tx, …)` interface; implementation can be aligned with `dbOrTx` (today `GetByID`/`List` manually fall back to `r.db` when `tx == nil`).
+
+### Interface — `internal/repository/{domain}/{domain}_repository.go`
+
+- Define the interface here; postgres is the only implementation.
+- Every method includes `tx *gorm.DB`.
 
 ### Model — `internal/repository/{domain}/model/`
 
@@ -274,10 +322,12 @@ Or bind as `decimal.Decimal` if the API documents numeric JSON and you control c
 
 ### Postgres — `internal/repository/{domain}/postgres/repository.go`
 
-- `NewXxxRepository(db *gorm.DB)`
-- Create: UUID if ID empty
-- Writes: require `tx != nil`
-- `gorm.ErrRecordNotFound` → `"xxx not found"`
+- `NewXxxRepository(db *gorm.DB)` — store `r.db` for `dbOrTx` fallback.
+- `dbOrTx(tx *gorm.DB) *gorm.DB` on every postgres repository struct.
+- Read: `r.dbOrTx(tx).WithContext(ctx).…`
+- Write: `tx.WithContext(ctx).…` with `tx == nil` → error.
+- Create: generate UUID when ID is empty (per domain rules).
+- `gorm.ErrRecordNotFound` → `apperrors` domain.
 
 ### Migrate
 
@@ -289,6 +339,8 @@ return db.AutoMigrate(&model.User{}, &samplemodel.Sample{})
 
 ### Transactions — `internal/repository/begin/`
 
+Usecase **must** open a transaction before calling the repository for coordinated CRUD or state-machine flows:
+
 ```go
 tx, err := s.txManager.Begin(ctx)
 if err != nil { return ..., err }
@@ -297,11 +349,20 @@ defer func() {
         _ = s.txManager.Rollback(ctx, tx)
     }
 }()
-// repo calls with tx
+
+// Inside a transaction: pass tx (reads share the same snapshot):
+current, err := s.getter.Get(ctx, tx, id)   // → repo.GetByID(ctx, tx, id) → dbOrTx(tx)
+updated, err := s.repo.Update(ctx, tx, entity)
+// ...
+
 err = s.txManager.Commit(ctx, tx)
 ```
 
 `begin.BeginRepository` satisfies sample’s `TransactionManager` interface — wire it directly in `wireSampleService`.
+
+**Outside a transaction:** pass `nil` for reads — `repo.GetByID(ctx, nil, id)` uses `r.db` via `dbOrTx`.
+
+**Getter:** `SampleGetter.Get(ctx, tx, id)` forwards `tx` to the repository (see `internal/usecase/sample/getter.go`; `saver.go` calls it after `Begin`).
 
 ---
 
@@ -311,12 +372,14 @@ err = s.txManager.Commit(ctx, tx)
 
 - File: `{domain}_usecase.go`, optional `events.go` for publisher interface.
 - `NewUserService(repo, txManager, publisher)` — **must** pass `begin.BeginRepository`.
+- Mutations: `Begin` → repo writes with `tx`; reads in tx: `repo.GetByID(ctx, tx, id)`; reads without tx: `repo.GetByID(ctx, nil, id)` (falls back to `r.db`).
 - Validate in usecase; publish after commit; **log** publish errors (do not fail the HTTP response).
 
 ### State machine service (sample)
 
 - `SampleService` with `Save(ctx, sample)` — see [statemachine.md](./statemachine.md).
 - `NewSampleSaver(factory, txManager, adder, getter, updater, publisher)`.
+- Inside `Save`: `getter.Get(ctx, tx, id)` → `repo.GetByID(ctx, tx, id)`; `adder`/`updater` use `(ctx, tx, ...)` as well.
 - Publish after commit; **return** publish error to caller (stricter than users).
 
 ### Publisher interface (in usecase package)
@@ -438,6 +501,7 @@ Also update `internal/bootstrap/consumer.go` if the new domain needs consumer wi
 - [ ] `wire{Domain}Service` added; `app.go` / `server.go` pass new service
 - [ ] `AutoMigrate` includes new model
 - [ ] `txManager` injected where transactions are used
+- [ ] Every repository method has `tx *gorm.DB`; postgres has `dbOrTx`; writes require `tx != nil`
 - [ ] State machine domains: [statemachine.md](./statemachine.md)
 - [ ] Money fields use `shopspring/decimal`, not float
 - [ ] Read `database/*.sql` + `database/openapi.yaml`; implementation matches both

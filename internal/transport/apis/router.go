@@ -27,5 +27,3 @@ func RegisterRoutes(e *echo.Echo, userService users.UserService, sampleService u
 	samples.POST("", sampleHandler.Create)
 	samples.PUT("/:id", sampleHandler.Update)
 }
-
-

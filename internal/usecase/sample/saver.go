@@ -15,7 +15,7 @@ type (
 	}
 
 	SampleGetter interface {
-		Get(ctx context.Context, id string) (*entitysample.Sample, error)
+		Get(ctx context.Context, tx *gorm.DB, id string) (*entitysample.Sample, error)
 	}
 
 	SampleUpdater interface {
@@ -81,8 +81,18 @@ func (s *sampleSaver) Save(ctx context.Context, sample entitysample.Sample) (ent
 		current *entitysample.Sample
 	)
 
+	tx, err := s.txManager.Begin(ctx)
+	if err != nil {
+		return entitysample.Sample{}, err
+	}
+	defer func() {
+		if err != nil {
+			_ = s.txManager.Rollback(ctx, tx)
+		}
+	}()
+
 	if sample.ID != "" {
-		current, err = s.getter.Get(ctx, sample.ID)
+		current, err = s.getter.Get(ctx, tx, sample.ID)
 		if err != nil {
 			return entitysample.Sample{}, err
 		}
@@ -98,16 +108,6 @@ func (s *sampleSaver) Save(ctx context.Context, sample entitysample.Sample) (ent
 	if err != nil {
 		return entitysample.Sample{}, err
 	}
-
-	tx, err := s.txManager.Begin(ctx)
-	if err != nil {
-		return entitysample.Sample{}, err
-	}
-	defer func() {
-		if err != nil {
-			_ = s.txManager.Rollback(ctx, tx)
-		}
-	}()
 
 	updated, err = stateMachine.Do(ctx, tx, sample)
 	if err != nil {

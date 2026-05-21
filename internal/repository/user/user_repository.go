@@ -7,9 +7,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// Interface repository untuk entity User.
-// Implementasi (Postgres/Mongo/dll) harus memenuhi kontrak ini.
-// Menggunakan model dari usecase untuk penyederhanaan.
+// UserRepository is the persistence contract for the User entity.
+// Implementations (Postgres, etc.) must satisfy this interface.
 
 type UserRepository interface {
 	Create(ctx context.Context, tx *gorm.DB, user userEntity.User) (userEntity.User, error)

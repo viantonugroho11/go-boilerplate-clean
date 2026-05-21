@@ -10,14 +10,14 @@ import (
 type Code string
 
 const (
-	CodeValidation     Code = "VALIDATION_ERROR"
-	CodeNotFound       Code = "NOT_FOUND"
-	CodeConflict       Code = "CONFLICT"
-	CodeBadRequest     Code = "BAD_REQUEST"
-	CodeUnauthorized   Code = "UNAUTHORIZED"
-	CodeForbidden      Code = "FORBIDDEN"
-	CodeInternal       Code = "INTERNAL_ERROR"
-	CodeUnprocessable  Code = "UNPROCESSABLE_ENTITY"
+	CodeValidation    Code = "VALIDATION_ERROR"
+	CodeNotFound      Code = "NOT_FOUND"
+	CodeConflict      Code = "CONFLICT"
+	CodeBadRequest    Code = "BAD_REQUEST"
+	CodeUnauthorized  Code = "UNAUTHORIZED"
+	CodeForbidden     Code = "FORBIDDEN"
+	CodeInternal      Code = "INTERNAL_ERROR"
+	CodeUnprocessable Code = "UNPROCESSABLE_ENTITY"
 )
 
 // AppError is the application error type mapped to HTTP responses.
