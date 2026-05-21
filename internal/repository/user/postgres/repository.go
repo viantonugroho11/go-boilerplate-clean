@@ -7,6 +7,7 @@ import (
 	userEntity "go-boilerplate-clean/internal/entity/users"
 	"go-boilerplate-clean/internal/repository/user"
 	"go-boilerplate-clean/internal/repository/user/model"
+	"go-boilerplate-clean/internal/shared/apperrors"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -39,7 +40,7 @@ func (r *userRepository) GetByID(ctx context.Context, tx *gorm.DB, id string) (u
 	if tx != nil {
 		err := tx.WithContext(ctx).First(&u, "id = ?", id).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return userEntity.User{}, errors.New("user not found")
+			return userEntity.User{}, apperrors.ErrUserNotFound
 		}
 		return model.ToEntity(&u), nil
 	}
@@ -87,7 +88,7 @@ func (r *userRepository) Update(ctx context.Context, tx *gorm.DB, user userEntit
 		return userEntity.User{}, err
 	}
 	if tx.RowsAffected == 0 {
-		return userEntity.User{}, errors.New("user not found")
+		return userEntity.User{}, apperrors.ErrUserNotFound
 	}
 	return user, nil
 }
@@ -98,10 +99,7 @@ func (r *userRepository) Delete(ctx context.Context, tx *gorm.DB, id string) err
 		return err
 	}
 	if tx.RowsAffected == 0 {
-		return errors.New("user not found")
-	}
-	if tx.RowsAffected == 0 {
-		return errors.New("user not found")
+		return apperrors.ErrUserNotFound
 	}
 	return nil
 }

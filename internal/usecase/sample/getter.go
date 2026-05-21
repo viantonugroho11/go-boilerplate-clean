@@ -2,6 +2,7 @@ package sample
 
 import (
 	"context"
+	"go-boilerplate-clean/internal/shared/apperrors"
 	"strings"
 
 	entitysample "go-boilerplate-clean/internal/entity/sample"
@@ -18,7 +19,7 @@ func NewSampleGetter(repo reposample.SampleRepository) SampleGetter {
 
 func (g *sampleGetter) Get(ctx context.Context, id string) (*entitysample.Sample, error) {
 	if strings.TrimSpace(id) == "" {
-		return nil, ErrSampleIDRequired
+		return nil, apperrors.ErrSampleIDRequired
 	}
 	return g.repo.GetByID(ctx, id)
 }

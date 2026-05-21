@@ -1,9 +1,12 @@
 package handler
 
 import (
-	"net/http"
+	"strings"
 
 	userEntity "go-boilerplate-clean/internal/entity/users"
+	"go-boilerplate-clean/internal/shared/apperrors"
+	"go-boilerplate-clean/internal/shared/pagination"
+	"go-boilerplate-clean/internal/shared/response"
 	"go-boilerplate-clean/internal/transport/apis/dto"
 	userUsecase "go-boilerplate-clean/internal/usecase/users"
 
@@ -21,37 +24,55 @@ func NewUserHandler(service userUsecase.UserService) *UserHandler {
 func (h *UserHandler) Create(c echo.Context) error {
 	var req dto.CreateUserRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return response.BindError(c, err)
 	}
 	user, err := h.service.Create(c.Request().Context(), req.ToEntity())
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return response.Error(c, err)
 	}
-	return c.JSON(http.StatusCreated, user)
+	return response.Created(c, user)
 }
 
 func (h *UserHandler) GetByID(c echo.Context) error {
 	id := c.Param("id")
+	if strings.TrimSpace(id) == "" {
+		return response.Error(c, apperrors.ErrUserIDRequired)
+	}
 	user, err := h.service.GetByID(c.Request().Context(), id)
 	if err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+		return response.Error(c, err)
 	}
-	return c.JSON(http.StatusOK, user)
+	return response.OK(c, user)
 }
 
 func (h *UserHandler) List(c echo.Context) error {
+	page := pagination.ParseQuery(c)
 	users, err := h.service.List(c.Request().Context())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return response.Error(c, err)
 	}
-	return c.JSON(http.StatusOK, users)
+	total := int64(len(users))
+	start := page.Offset()
+	if start > len(users) {
+		users = []userEntity.User{}
+	} else {
+		end := start + page.Limit()
+		if end > len(users) {
+			end = len(users)
+		}
+		users = users[start:end]
+	}
+	return response.Paginated(c, pagination.NewList(users, page, total))
 }
 
 func (h *UserHandler) Update(c echo.Context) error {
 	id := c.Param("id")
+	if strings.TrimSpace(id) == "" {
+		return response.Error(c, apperrors.ErrUserIDRequired)
+	}
 	var req dto.UpdateUserRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return response.BindError(c, err)
 	}
 	user, err := h.service.Update(c.Request().Context(), userEntity.User{
 		ID:    id,
@@ -59,15 +80,18 @@ func (h *UserHandler) Update(c echo.Context) error {
 		Email: req.Email,
 	})
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return response.Error(c, err)
 	}
-	return c.JSON(http.StatusOK, user)
+	return response.OK(c, user)
 }
 
 func (h *UserHandler) Delete(c echo.Context) error {
 	id := c.Param("id")
-	if err := h.service.Delete(c.Request().Context(), id); err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+	if strings.TrimSpace(id) == "" {
+		return response.Error(c, apperrors.ErrUserIDRequired)
 	}
-	return c.NoContent(http.StatusNoContent)
+	if err := h.service.Delete(c.Request().Context(), id); err != nil {
+		return response.Error(c, err)
+	}
+	return response.NoContent(c)
 }

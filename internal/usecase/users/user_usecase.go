@@ -2,13 +2,13 @@ package users
 
 import (
 	"context"
-	"errors"
 	"log"
 	"strings"
 
 	userEntity "go-boilerplate-clean/internal/entity/users"
 	begin "go-boilerplate-clean/internal/repository/begin"
 	repouser "go-boilerplate-clean/internal/repository/user"
+	"go-boilerplate-clean/internal/shared/apperrors"
 )
 
 type UserService interface {
@@ -61,7 +61,7 @@ func (s *userService) Create(ctx context.Context, user userEntity.User) (userEnt
 
 func (s *userService) GetByID(ctx context.Context, id string) (userEntity.User, error) {
 	if strings.TrimSpace(id) == "" {
-		return userEntity.User{}, errors.New("id is required")
+		return userEntity.User{}, apperrors.ErrUserIDRequired
 	}
 	return s.repo.GetByID(ctx, nil, id)
 }
@@ -72,7 +72,7 @@ func (s *userService) List(ctx context.Context) ([]userEntity.User, error) {
 
 func (s *userService) Update(ctx context.Context, user userEntity.User) (userEntity.User, error) {
 	if strings.TrimSpace(user.ID) == "" {
-		return userEntity.User{}, errors.New("id is required")
+		return userEntity.User{}, apperrors.ErrUserIDRequired
 	}
 	if err := validateUser(user, false); err != nil {
 		return userEntity.User{}, err
@@ -91,7 +91,7 @@ func (s *userService) Update(ctx context.Context, user userEntity.User) (userEnt
 
 func (s *userService) Delete(ctx context.Context, id string) error {
 	if strings.TrimSpace(id) == "" {
-		return errors.New("id is required")
+		return apperrors.ErrUserIDRequired
 	}
 	return s.repo.Delete(ctx, nil, id)
 }
@@ -101,10 +101,10 @@ func validateUser(user userEntity.User, creating bool) error {
 		// ID akan diisi oleh repository saat create jika kosong
 	}
 	if strings.TrimSpace(user.Name) == "" {
-		return errors.New("name is required")
+		return apperrors.ErrUserNameRequired
 	}
 	if strings.TrimSpace(user.Email) == "" {
-		return errors.New("email is required")
+		return apperrors.ErrUserEmailRequired
 	}
 	return nil
 }

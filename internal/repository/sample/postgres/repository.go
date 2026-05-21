@@ -7,6 +7,7 @@ import (
 	entitysample "go-boilerplate-clean/internal/entity/sample"
 	reposample "go-boilerplate-clean/internal/repository/sample"
 	"go-boilerplate-clean/internal/repository/sample/model"
+	"go-boilerplate-clean/internal/shared/apperrors"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -41,7 +42,7 @@ func (r *sampleRepository) GetByID(ctx context.Context, id string) (*entitysampl
 	var m model.Sample
 	err := r.db.WithContext(ctx).First(&m, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, errors.New("sample not found")
+		return nil, apperrors.ErrSampleNotFound
 	}
 	if err != nil {
 		return nil, err
