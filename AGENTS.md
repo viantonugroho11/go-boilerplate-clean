@@ -6,9 +6,10 @@ Read this file first. Then open the doc(s) for your task before writing code.
 
 | Task | Read | Golden reference |
 |------|------|------------------|
-| New domain (CRUD, HTTP, repo, wire) | [docs/codegen.md](docs/codegen.md) | `internal/usecase/users` |
+| Schema / persistence | `database/*.sql`, [database/README.md](database/README.md) | SQL is source of truth |
+| HTTP handlers / DTOs / routes | **`database/openapi.yaml`** (required) + [docs/codegen.md](docs/codegen.md) | OpenAPI `operationId` + schemas |
+| Go patterns (CRUD, wire) | [docs/codegen.md](docs/codegen.md) | `internal/usecase/users` |
 | Entity with `status` / workflow | [docs/statemachine.md](docs/statemachine.md) | `internal/usecase/sample` |
-| CRUD + state machine | Both docs | `users` + `sample` |
 
 **Module path:** `go-boilerplate-clean`
 
@@ -41,13 +42,14 @@ Read this file first. Then open the doc(s) for your task before writing code.
 
 ## Required workflow
 
-1. Read [docs/codegen.md](docs/codegen.md) and/or [docs/statemachine.md](docs/statemachine.md).
-2. Respect layer boundaries: `entity` → `repository` → `usecase` → `transport` → `bootstrap`.
-3. Usecase depends on **interfaces** only (repository, publisher, `begin.BeginRepository` / `TransactionManager`).
-4. Register routes in `internal/transport/apis/router.go`.
-5. Wire in `internal/bootstrap/wire.go` (`wire{Domain}Service`).
-6. Register GORM models in `internal/infrastructure/database/postgres/connection.go` → `Migrate()`.
-7. Finish with `go build ./...` (and `go vet ./...` when possible).
+1. Read **`database/README.md`**, relevant **`database/*.sql`**, and for any HTTP work **`database/openapi.yaml`** (mandatory for handlers/DTOs/routes).
+2. Read [docs/codegen.md](docs/codegen.md) and/or [docs/statemachine.md](docs/statemachine.md).
+3. Respect layer boundaries: `entity` → `repository` → `usecase` → `transport` → `bootstrap`.
+4. Usecase depends on **interfaces** only (repository, publisher, `begin.BeginRepository` / `TransactionManager`).
+5. Register routes in `internal/transport/apis/router.go` — paths/methods from **`database/openapi.yaml`**.
+6. Wire in `internal/bootstrap/wire.go` (`wire{Domain}Service`).
+7. Register GORM models in `internal/infrastructure/database/postgres/connection.go` → `Migrate()` (schema from **`database/*.sql`**).
+8. Finish with `go build ./...` (and `go vet ./...` when possible).
 
 ## Conventions
 

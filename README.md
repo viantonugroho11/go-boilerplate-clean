@@ -209,11 +209,12 @@ Optional SQL:
 
 ## Code generation (AI agents)
 
+- [AGENTS.md](AGENTS.md) — agent entry point
 - [docs/codegen.md](docs/codegen.md) — add domains, CRUD, Kafka, wiring
 - [docs/statemachine.md](docs/statemachine.md) — status workflows
-- [AGENTS.md](AGENTS.md) — agent entry point
+- **`database/`** — SQL schema (source of truth for persistence); **`database/openapi.yaml`** — **required** for HTTP handlers, DTOs, and routes
 
-Sample state machine API: `POST /samples`, `PUT /samples/:id`.
+Boilerplate examples: `/users`, `POST/PUT /samples`. Campaign API contract: see `database/openapi.yaml`.
 
 ## License
 MIT. Feel free to use and modify.

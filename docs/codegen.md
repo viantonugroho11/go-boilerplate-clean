@@ -5,6 +5,80 @@ Ready-to-use guidance for AI/codegen when adding features. Follow repo conventio
 **Module path:** `go-boilerplate-clean`  
 **Agent entry point:** [AGENTS.md](../AGENTS.md)
 
+## Database-first codegen (required)
+
+Before generating **entity, repository, usecase, or migrations**, read the project **`database/`** folder. Before generating or changing **HTTP handlers, DTOs, or routes**, you **must** read **`database/openapi.yaml`**.
+
+| File / folder | Purpose | Authority |
+|---------------|---------|-----------|
+| [`database/*.sql`](../database/) | PostgreSQL schema (tables, constraints, indexes) | **Source of truth** for persistence |
+| [`database/README.md`](../database/README.md) | Domain overview, entity list, execution order | Start here |
+| [`database/dbdiagram.dbml`](../database/dbdiagram.dbml) | ERD / relationships (visual reference) | Diagram only |
+| [`database/openapi.yaml`](../database/openapi.yaml) | REST contract (paths, methods, schemas, `operationId`) | **Source of truth** for HTTP layer |
+
+**Conflict resolution:** if `openapi.yaml`, `dbdiagram.dbml`, and `.sql` disagree, follow **`database/*.sql`** for columns/types/constraints and **`database/openapi.yaml`** for API paths, request/response shapes, and status codes.
+
+### Read order for agents
+
+```
+1. database/README.md
+2. database/*.sql          → entity, GORM model, repository, Migrate
+3. database/dbdiagram.dbml → relationships (optional)
+4. database/openapi.yaml   → handler, DTO, router (mandatory for HTTP)
+5. docs/codegen.md (+ docs/statemachine.md if workflow)
+6. Reference Go code (users / sample) for patterns only — do not invent routes
+```
+
+### Map SQL → Go (repository layer)
+
+| SQL | Entity field | GORM model |
+|-----|--------------|------------|
+| `UUID` | `string` | `type:uuid` |
+| `VARCHAR(n)` | `string` | `size:n` |
+| `TEXT` | `string` | `type:text` |
+| `NUMERIC(20,2)` (money) | `decimal.Decimal` | `type:numeric(20,2)` — see § Money |
+| `TIMESTAMPTZ` | `time.Time` | `timestamptz` |
+| `CHECK (...)` / `ENUM`-like varchar | const or validated string in usecase | same constraint awareness |
+
+Derive `TableName()`, `ToEntity`, `ToModel` from the `.sql` column list. Register models in `internal/infrastructure/database/postgres/connection.go` → `Migrate()`.
+
+### Map OpenAPI → Go (HTTP layer) — mandatory
+
+Read every `paths` entry and `components.schemas` in [`database/openapi.yaml`](../database/openapi.yaml) before writing handlers.
+
+| OpenAPI | Go |
+|---------|-----|
+| `paths./foo/bar.post` | `POST` route + handler method |
+| `operationId` | Handler name hint (`createCampaign` → `CreateCampaign`) |
+| `parameters` (path/query) | Echo `c.Param`, `c.QueryParam`, `pagination.ParseQuery` |
+| `requestBody.schema` | DTO struct + `json` tags + `ToEntity()` |
+| `responses.200/201.schema` | Response type; wrap with `internal/shared/response` |
+| `responses.404` | `apperrors.NotFound` via `response.Error` |
+| `format: uuid` | `string` + validation in usecase |
+| `type: number` on money fields | Prefer `string` in DTO → `decimal.NewFromString` (see § Money) |
+
+**Handlers must not:**
+
+- Invent paths, methods, or payload fields absent from `openapi.yaml`.
+- Change URL shapes or HTTP verbs unless `openapi.yaml` is updated first.
+- Return ad-hoc JSON maps; use `response.OK`, `response.Created`, `response.Paginated`, `response.Error`.
+
+**Example (campaigns, from current spec):**
+
+| Method | OpenAPI path | `operationId` |
+|--------|--------------|---------------|
+| `GET` | `/categories` | `listCampaignCategories` |
+| `GET` | `/campaigns` | `listCampaigns` |
+| `POST` | `/campaigns` | `createCampaign` |
+| `GET` | `/campaigns/{id}` | `getCampaign` |
+| `PATCH` | `/campaigns/{id}` | `patchCampaign` |
+| `POST` | `/campaigns/{id}/updates` | `createCampaignUpdate` |
+| `GET` | `/campaigns/{id}/statistics` | `getCampaignStatistics` |
+
+Register routes under the same path prefixes in `internal/transport/apis/router.go` (adjust group prefix if the app mounts `/v1` in bootstrap).
+
+---
+
 ## Reference implementations
 
 | Pattern | Docs | Code | HTTP |
@@ -20,6 +94,11 @@ Ready-to-use guidance for AI/codegen when adding features. Follow repo conventio
 You are adding a feature to Go repo `go-boilerplate-clean` (clean architecture).
 Read AGENTS.md and docs/codegen.md first; if status/workflow, also docs/statemachine.md.
 
+## Required inputs (read before coding)
+1. `database/README.md` and relevant `database/*.sql` (schema source of truth)
+2. `database/openapi.yaml` — **mandatory** for handlers, DTOs, routes
+3. `database/dbdiagram.dbml` (optional ERD)
+
 ## Feature context
 - Domain (snake_case): {domain}
 - Entity (PascalCase): {Entity}
@@ -30,15 +109,16 @@ Read AGENTS.md and docs/codegen.md first; if status/workflow, also docs/statemac
 - Money / amount fields: {yes|no}        # if yes, use shopspring/decimal (see § Money)
 
 ## Rules
-1. Usecase → repository/publisher interfaces only
-2. Entity: internal/entity/{domain}/ (no GORM)
-3. GORM model: internal/repository/{domain}/model/
-4. HTTP: internal/transport/apis/handler/ + dto/
-5. Wire: internal/bootstrap/wire.go
-6. context.Context as first param on all methods
-7. Business errors: `internal/shared/apperrors` (not raw DB errors to HTTP)
-8. Money/amount: use `github.com/shopspring/decimal` — never `float32`/`float64`
-9. go build ./... must pass
+1. Schema from `database/*.sql`; HTTP from `database/openapi.yaml` (do not guess)
+2. Usecase → repository/publisher interfaces only
+3. Entity: internal/entity/{domain}/ (no GORM)
+4. GORM model: internal/repository/{domain}/model/ (match SQL types)
+5. HTTP: handler + dto aligned with `openapi.yaml` `operationId` and schemas
+6. Wire: internal/bootstrap/wire.go
+7. context.Context as first param on all methods
+8. Business errors: `internal/shared/apperrors` + `internal/shared/response`
+9. Money/amount: `github.com/shopspring/decimal` — map from SQL `NUMERIC` (see § Money)
+10. go build ./... must pass
 
 ## Files (adjust to feature)
 - [ ] internal/entity/{domain}/{entity}.go
@@ -46,9 +126,9 @@ Read AGENTS.md and docs/codegen.md first; if status/workflow, also docs/statemac
 - [ ] internal/repository/{domain}/model/{entity}.go
 - [ ] internal/repository/{domain}/postgres/repository.go
 - [ ] internal/usecase/{domain}/...
-- [ ] internal/transport/apis/dto/...
-- [ ] internal/transport/apis/handler/...
-- [ ] internal/transport/apis/router.go
+- [ ] internal/transport/apis/dto/...        # fields from openapi requestBody/schemas
+- [ ] internal/transport/apis/handler/...  # one handler per openapi operationId
+- [ ] internal/transport/apis/router.go    # paths/methods from openapi paths
 - [ ] internal/bootstrap/wire.go
 - [ ] internal/infrastructure/database/postgres/connection.go (Migrate)
 - [ ] Kafka: event DTO or publisher (see §5)
@@ -133,15 +213,18 @@ type Order struct {
 
 ### GORM model (`internal/repository/{domain}/model/`)
 
+Match precision/scale from `database/*.sql` (e.g. campaigns use `NUMERIC(20,2)`):
+
 ```go
 import "github.com/shopspring/decimal"
 
-type Order struct {
-    Amount decimal.Decimal `gorm:"type:numeric(18,2);not null"`
+type Campaign struct {
+    TargetAmount    decimal.Decimal `gorm:"type:numeric(20,2);not null"`
+    CollectedAmount decimal.Decimal `gorm:"type:numeric(20,2);not null"`
 }
 ```
 
-`shopspring/decimal` implements `sql.Scanner` and `driver.Valuer`, so GORM can persist it directly. Pick precision/scale to match business rules (e.g. `numeric(18,2)` for currency).
+`shopspring/decimal` implements `sql.Scanner` and `driver.Valuer`, so GORM can persist it directly.
 
 ### DTO / HTTP
 
@@ -256,24 +339,47 @@ Implementations: `internal/infrastructure/broker/kafka/`.
 
 ## 4. HTTP transport
 
+**Contract:** [`database/openapi.yaml`](../database/openapi.yaml) — read fully before implementing this layer.
+
 ### DTO — `internal/transport/apis/dto/`
 
-- `json` tags on requests; `ToEntity()` without ID on create.
+- Struct names aligned with OpenAPI schema names (e.g. `CreateCampaignRequest`, `PatchCampaignRequest`).
+- `json` tag names **must match** OpenAPI property names (`snake_case` in spec).
+- `ToEntity()` maps into `internal/entity/{domain}/` (no ID on create unless spec includes it).
+- Query parameters from OpenAPI `parameters` → parsed in handler or dedicated query struct.
+- Use `internal/shared/response` for all responses (see below).
 
 ### Handler — `internal/transport/apis/handler/`
 
-- Inject service via constructor.
-- `c.Bind` → `400` on failure.
-- `c.Request().Context()` into usecase.
-- Status: `201` create, `200` OK, `204` delete, `404` not found, `400` business/validation.
+- **One handler method per `operationId`** in `openapi.yaml`.
+- Inject usecase/service via constructor; no business logic beyond bind/validate/call service/map response.
+- `c.Bind` failures → `response.BindError(c, err)`.
+- Service errors → `response.Error(c, err)` (`apperrors.FromError`).
+- Success → `response.OK`, `response.Created`, `response.Paginated`, or `response.NoContent` per OpenAPI response code.
+- HTTP status codes and response bodies must match `openapi.yaml` (`200`, `201`, `404`, etc.).
 
 ### Router — `internal/transport/apis/router.go`
+
+- Register **exact** path and HTTP method from `openapi.yaml` `paths` (e.g. `PATCH /campaigns/:id`, not `PUT` unless spec says so).
+- Path parameter names must match OpenAPI (`{id}` → `c.Param("id")`).
+- Pass wired services from `bootstrap/server.go`.
 
 ```go
 func RegisterRoutes(e *echo.Echo, userService users.UserService, sampleService usecasesample.SampleService)
 ```
 
-Add groups and pass services from `bootstrap/server.go`.
+Legacy routes (`/users`, `/samples`) exist as boilerplate examples; **new domain endpoints come from `openapi.yaml`**.
+
+### OpenAPI ↔ response envelope
+
+Boilerplate JSON shape (`internal/shared/response`):
+
+```json
+{ "success": true, "data": { }, "meta": { } }
+{ "success": false, "error": { "code": "NOT_FOUND", "message": "..." } }
+```
+
+If `openapi.yaml` documents a raw array or schema without wrapper, either update the spec to match the envelope or document a one-off exception in the handler comment — **default is the shared envelope**.
 
 ---
 
@@ -334,6 +440,7 @@ Also update `internal/bootstrap/consumer.go` if the new domain needs consumer wi
 - [ ] `txManager` injected where transactions are used
 - [ ] State machine domains: [statemachine.md](./statemachine.md)
 - [ ] Money fields use `shopspring/decimal`, not float
+- [ ] Read `database/*.sql` + `database/openapi.yaml`; implementation matches both
 
 ---
 
@@ -344,3 +451,5 @@ Also update `internal/bootstrap/consumer.go` if the new domain needs consumer wi
 > Read AGENTS.md, docs/codegen.md, and docs/statemachine.md. Add **order** with status workflow like **sample**, including Kafka and POST/PUT routes.
 
 > Add **invoice** with fields `amount` and `tax` using shopspring/decimal per docs/codegen.md (§ Money). Postgres numeric(18,2), no float64.
+
+> Implement **campaigns** API: read `database/README.md`, all `database/*.sql`, and **`database/openapi.yaml`**. Generate entity/repo from SQL; handlers/DTOs/routes **only** from openapi `operationId` and schemas. Use `decimal` for `target_amount` / `collected_amount`. Run `go build ./...`.
