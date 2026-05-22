@@ -27,6 +27,7 @@ Before generating **entity, repository, usecase, or migrations**, read the proje
 4. database/openapi.yaml   → handler, DTO, router (mandatory for HTTP)
 5. docs/codegen.md (+ docs/statemachine.md if workflow)
 6. Reference Go code (users / sample) for patterns only — do not invent routes
+7. [README.md](../README.md) — update when the change affects how the project is run, configured, or explored (see § README)
 ```
 
 ### Map SQL → Go (repository layer)
@@ -120,6 +121,7 @@ Read AGENTS.md and docs/codegen.md first; if status/workflow, also docs/statemac
 9. Business errors: `internal/shared/apperrors` + `internal/shared/response`
 10. Money/amount: `github.com/shopspring/decimal` — map from SQL `NUMERIC` (see § Money)
 11. go build ./... must pass
+12. Update [README.md](../README.md) so it matches the work shipped (endpoints, config, layout, run commands) — see § README
 
 ## Files (adjust to feature)
 - [ ] internal/entity/{domain}/{entity}.go
@@ -134,6 +136,7 @@ Read AGENTS.md and docs/codegen.md first; if status/workflow, also docs/statemac
 - [ ] internal/infrastructure/database/postgres/connection.go (Migrate)
 - [ ] Kafka: event DTO or publisher (see §5)
 - [ ] State machine: states/, saver, on_* (see statemachine.md)
+- [ ] [README.md](../README.md) — folder structure, endpoints, env vars, Kafka/consumer, docs links
 ```
 
 ---
@@ -493,7 +496,89 @@ Also update `internal/bootstrap/consumer.go` if the new domain needs consumer wi
 
 ---
 
-## 7. Pre-completion checklist
+## 7. README.md (keep in sync with the project)
+
+[README.md](../README.md) is the **human-facing** overview: how to run the app, configure env vars, and discover APIs. Agents must **update it in the same task** when codegen changes what operators or new contributors need to know.
+
+**Language:** English (same as this doc).
+
+**Do not** paste full OpenAPI or SQL into README — link to `database/openapi.yaml`, `database/README.md`, and `database/*.sql` instead.
+
+### When README must be updated
+
+| You changed | Update README section(s) |
+|-------------|---------------------------|
+| New HTTP routes / domains | **HTTP Endpoints** (table + example cURL); mention in intro if it is a primary API |
+| `database/openapi.yaml` paths (e.g. campaigns) | **HTTP Endpoints** + **Code generation** bullet; link to `database/openapi.yaml` |
+| New `cmd/*` entrypoint | **Folder Structure**, **Run Locally** (commands) |
+| Kafka topic / consumer / producer | **Kafka** (library, paths, env vars, how to run consumer) |
+| New env keys in `configs/config.yaml` or `internal/config` | **Configuration** |
+| New tables / `database/*.sql` | **Database** (schema source: `database/`, AutoMigrate models) |
+| New reference domain in repo | **Repository & Usecase** or a short **Domains** list |
+| Bootstrap / wiring pattern | **Architecture Notes**, startup behavior in **Run Locally** |
+| Stale paths in README (e.g. `transport/http` → `transport/apis`) | Fix while touching README for any reason |
+
+### Verify before editing README
+
+Read the **actual** tree and wiring — do not copy outdated README text:
+
+| Topic | Current boilerplate (verify in repo) |
+|-------|--------------------------------------|
+| HTTP | `internal/transport/apis/` (`handler/`, `dto/`, `router.go`) |
+| Entrypoints | `cmd/app` (HTTP), `cmd/consumer` (Kafka consumer, `-consumer=user\|order`) |
+| Bootstrap | `internal/bootstrap/` (`app.go`, `wire.go`, `server.go`, `consumer.go`) |
+| Kafka library | `github.com/viantonugroho11/go-lib/kafka` (not raw Sarama in app code) |
+| Schema / API contract | `database/*.sql`, `database/openapi.yaml` |
+| Example APIs | `/users`, `POST/PUT /samples`; campaigns per `openapi.yaml` when implemented |
+| Transactions | `internal/repository/begin/`, repo methods use `tx *gorm.DB` + `dbOrTx` |
+
+### Suggested README sections (template)
+
+Keep existing headings where possible; extend rather than rewrite the whole file.
+
+1. **Title & stack** — Echo, GORM, Postgres, Kafka (go-lib), Redis, Viper; `database/`-first workflow.
+2. **Prerequisites** — unchanged unless new infra (e.g. another broker).
+3. **Folder Structure** — reflect `cmd/app`, `cmd/consumer`, `internal/bootstrap`, `database/`, `internal/entity`, `internal/repository/{domain}`, `internal/usecase`, `internal/transport/apis`, `internal/transport/event`.
+4. **Configuration** — env vars from `configs/config.yaml` / `internal/config` (include new topics e.g. `KAFKA_TOPIC_ORDERS` when added).
+5. **Run Locally** — `go run ./cmd/app`; consumers: `go run ./cmd/consumer -consumer=user`.
+6. **HTTP Endpoints** — tables: Method, Path, Notes; separate **Boilerplate examples** vs **OpenAPI domains** (campaigns).
+7. **Kafka** — producer in `internal/infrastructure/broker/kafka/`; consumers in `internal/transport/event/kafka/`; wire in `bootstrap`.
+8. **Database** — SQL in `database/`; GORM AutoMigrate in `connection.go`; optional link to `database/README.md`.
+9. **Code generation (AI agents)** — links to `AGENTS.md`, `docs/codegen.md`, `docs/statemachine.md`, `database/`.
+10. **Architecture Notes** — layer rules + pointer to `dbOrTx` / transactions (one short paragraph).
+
+### Example: adding domain `campaign`
+
+After implementing from `database/*.sql` + `openapi.yaml`:
+
+```markdown
+## HTTP Endpoints
+
+### Campaigns (OpenAPI: `database/openapi.yaml`)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/categories` | List campaign categories |
+| GET | `/campaigns` | List campaigns |
+| POST | `/campaigns` | Create campaign |
+| ... | ... | ... |
+
+Schema and request bodies: see `database/openapi.yaml`.
+```
+
+Also ensure **Folder Structure** mentions `internal/entity/campaigns`, `internal/repository/campaign`, etc., if those packages exist.
+
+### README checklist (per feature)
+
+- [ ] Paths and package names match the repo (no `transport/http`, no wrong `main.go` paths)
+- [ ] New routes and env vars documented
+- [ ] Consumer command documented if a new `-consumer=` name was added
+- [ ] Links to `database/openapi.yaml` / `database/README.md` for contract details
+- [ ] **Code generation** section still points to `AGENTS.md` and `docs/codegen.md`
+- [ ] No secrets or `.env` contents in README
+
+---
+
+## 8. Pre-completion checklist
 
 - [ ] `go build ./...`
 - [ ] `go vet ./...`
@@ -505,6 +590,7 @@ Also update `internal/bootstrap/consumer.go` if the new domain needs consumer wi
 - [ ] State machine domains: [statemachine.md](./statemachine.md)
 - [ ] Money fields use `shopspring/decimal`, not float
 - [ ] Read `database/*.sql` + `database/openapi.yaml`; implementation matches both
+- [ ] [README.md](../README.md) updated for endpoints, config, run commands, and layout (§ README)
 
 ---
 
@@ -516,4 +602,4 @@ Also update `internal/bootstrap/consumer.go` if the new domain needs consumer wi
 
 > Add **invoice** with fields `amount` and `tax` using shopspring/decimal per docs/codegen.md (§ Money). Postgres numeric(18,2), no float64.
 
-> Implement **campaigns** API: read `database/README.md`, all `database/*.sql`, and **`database/openapi.yaml`**. Generate entity/repo from SQL; handlers/DTOs/routes **only** from openapi `operationId` and schemas. Use `decimal` for `target_amount` / `collected_amount`. Run `go build ./...`.
+> Implement **campaigns** API: read `database/README.md`, all `database/*.sql`, and **`database/openapi.yaml`**. Generate entity/repo from SQL; handlers/DTOs/routes **only** from openapi `operationId` and schemas. Use `decimal` for `target_amount` / `collected_amount`. Update **README.md** (HTTP endpoints, folder structure, config). Run `go build ./...`.
