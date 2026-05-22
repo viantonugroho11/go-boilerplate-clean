@@ -68,7 +68,7 @@ Factory rules (`NewStateMachine(ctx, current)`):
 1. **Empty ID is valid on create** — do not require ID before `Add`.
 2. **Default status** — if `current.Status == ""`, set initial status (e.g. `open`) before `switch current.Status`.
 3. **State machine runs inside the transaction**, before `Add`/`Update`.
-4. **Publish after commit** — sample returns publish errors to the client.
+4. **Publish after commit** — sample **returns publish errors to the caller** (exception; see § Kafka publish semantics).
 
 ```
 Save:
@@ -215,6 +215,28 @@ states.NewSampleStateMachineFactory(
 **Transaction defer:** rollback only when `err != nil` after `Begin` (same pattern as users).
 
 **Publish:** after successful `Commit`; failure fails `Save` (unlike users which only log).
+
+---
+
+## Kafka publish semantics (sample exception)
+
+State-machine domains use the **same producer wiring** as CRUD ([codegen.md](./codegen.md) § Event publishing) but **different failure semantics**:
+
+| Behavior | CRUD (`users`, new domains) | State machine (`sample`, `order`, …) |
+|----------|----------------------------|--------------------------------------|
+| Trigger | `Create` and `Update` usecases | `Save` after workflow + `Commit` |
+| On publish error | `log.Printf(...)`; return persisted entity to HTTP **success** | `return entity, err` from `Save` → handler maps to HTTP error |
+| Event naming (new work) | One `{Domain}Event` + `event_type` for CRUD (see [codegen.md](./codegen.md)) | May use full entity JSON (as sample) or `{Domain}Event` on save |
+| Code reference | `internal/usecase/users/user_usecase.go` | `internal/usecase/sample/saver.go` |
+
+```go
+// sample/saver.go — stricter: publish failure surfaces to API
+if err := s.publisher.Publish(ctx, updated); err != nil {
+    return entitysample.Sample{}, err
+}
+```
+
+**Agents:** when adding a **new CRUD** domain, use one **`{Domain}Event`** with `event_type` and **log-on-failure**. When adding a **state-machine** domain, follow sample’s **return publish error** rule unless product spec says otherwise.
 
 ---
 

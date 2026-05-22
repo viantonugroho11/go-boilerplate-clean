@@ -84,8 +84,8 @@ Register routes under the same path prefixes in `internal/transport/apis/router.
 
 | Pattern | Docs | Code | HTTP |
 |---------|------|------|------|
-| CRUD + Kafka event DTO | This file | `internal/usecase/users` | `/users` |
-| State machine + Kafka entity payload | [statemachine.md](./statemachine.md) | `internal/usecase/sample` | `POST/PUT /samples` |
+| CRUD + Kafka on **Create/Update** (event DTO + log on publish failure) | This file, § Event publishing | `internal/usecase/users`, `events.go` | `/users` |
+| State machine + Kafka on save (stricter: return publish error) | [statemachine.md](./statemachine.md) | `internal/usecase/sample` | `POST/PUT /samples` |
 
 ---
 
@@ -105,7 +105,7 @@ Read AGENTS.md and docs/codegen.md first; if status/workflow, also docs/statemac
 - Entity (PascalCase): {Entity}
 - Operations: {create|read|update|delete|list|custom}
 - DB transaction: {yes|no}
-- Kafka publish: {yes|no}
+- Kafka publish on Create/Update: {yes — default for persisted writes|no — document why}
 - Status / workflow: {yes|no}
 - Money / amount fields: {yes|no}        # if yes, use shopspring/decimal (see § Money)
 
@@ -120,15 +120,17 @@ Read AGENTS.md and docs/codegen.md first; if status/workflow, also docs/statemac
 8. Repository: **every** method `(ctx, tx *gorm.DB, ...)` — reads included; usecase passes `tx` from `Begin`
 9. Business errors: `internal/shared/apperrors` + `internal/shared/response`
 10. Money/amount: `github.com/shopspring/decimal` — map from SQL `NUMERIC` (see § Money)
-11. go build ./... must pass
-12. Update [README.md](../README.md) so it matches the work shipped (endpoints, config, layout, run commands) — see § README
+11. **Create and Update** must call a usecase `*EventPublisher` after successful persist (see § Event publishing); wire producer in `bootstrap/wire.go`
+12. go build ./... must pass
+13. Update [README.md](../README.md) so it matches the work shipped (endpoints, config, layout, run commands) — see § README
 
 ## Files (adjust to feature)
 - [ ] internal/entity/{domain}/{entity}.go
 - [ ] internal/repository/{domain}/{domain}_repository.go
 - [ ] internal/repository/{domain}/model/{entity}.go
 - [ ] internal/repository/{domain}/postgres/repository.go
-- [ ] internal/usecase/{domain}/...
+- [ ] internal/usecase/{domain}/{domain}_usecase.go
+- [ ] internal/usecase/{domain}/events.go          # {Domain}EventPublisher interface (required if Create/Update persist data)
 - [ ] internal/transport/apis/dto/...        # fields from openapi requestBody/schemas
 - [ ] internal/transport/apis/handler/...  # one handler per openapi operationId
 - [ ] internal/transport/apis/router.go    # paths/methods from openapi paths
@@ -371,35 +373,152 @@ err = s.txManager.Commit(ctx, tx)
 
 ## 3. Usecase (`internal/usecase/{domain}/`)
 
+### Event publishing on Create & Update (required — golden reference: users)
+
+Whenever a usecase **persists** data on **Create** or **Update**, it must publish to Kafka through a **publisher interface** defined in the usecase package (not infra imported from usecase).
+
+| Rule | Detail |
+|------|--------|
+| Interface file | `internal/usecase/{domain}/events.go` — e.g. `UserEventPublisher` |
+| Constructor | Inject publisher: `NewUserService(repo, txManager, publisher)` |
+| When to publish | **After** DB success (`Commit` for transactional Create; immediately after `repo.Update` / `repo.Create` succeeds) |
+| Publish failure | **Log and return success** to HTTP caller (do not roll back DB); see `user_usecase.go` |
+| Delete / read-only | No publish unless product spec requires it |
+| State machine domains | Still publish on successful save — sample **returns** publish error (stricter); new CRUD domains follow **users** unless `statemachine.md` says otherwise |
+
+**`events.go` (interface only):**
+
+```go
+// internal/usecase/users/events.go
+type UserEventPublisher interface {
+    PublishUser(ctx context.Context, user userEntity.User) error
+}
+```
+
+**Create — transaction then publish** (`internal/usecase/users/user_usecase.go`):
+
+```go
+created, err := s.repo.Create(ctx, tx, user)
+if err != nil {
+    return userEntity.User{}, err
+}
+if err = s.txManager.Commit(ctx, tx); err != nil {
+    return userEntity.User{}, err
+}
+
+if err = s.publisher.PublishUser(ctx, created); err != nil {
+    log.Printf("user_usecase: PublishUserCreated: %v", err)
+}
+return created, nil
+```
+
+**Update — persist then publish** (same publisher call pattern):
+
+```go
+updated, err := s.repo.Update(ctx, tx, user)
+if err != nil {
+    return userEntity.User{}, err
+}
+
+if err = s.publisher.PublishUser(ctx, updated); err != nil {
+    log.Printf("user_usecase: PublishUserUpdated: %v", err)
+}
+return updated, nil
+```
+
+**Wiring checklist per domain:**
+
+1. `internal/transport/event/events/{domain}_events.go` — **one** Kafka JSON DTO per domain (e.g. `CampaignEvent`; legacy users: `UserCreatedEvent`)
+2. `internal/infrastructure/broker/kafka/{domain}_event_publisher.go` — implements `{Domain}EventPublisher` using `go-lib/kafka` `Producer[T]`
+3. `internal/bootstrap/wire.go` — `NewProducer`, `New{Domain}EventPublisherKafka`, pass into `New{Domain}Service`
+4. `internal/usecase/{domain}/{domain}_usecase.go` — call publisher on **Create** and **Update** only
+
+### Event naming: one `{Domain}Event` per domain vs **sample** exception
+
+Use the **same call pattern** as users (publish after persist; interface in `events.go`; wire one `Producer[{Domain}Event]` per domain). Use **one event struct per domain** — not `CampaignCreatedEvent` / `CampaignUpdatedEvent`.
+
+| | **New CRUD domains** (recommended) | **users** (legacy boilerplate) | **sample** (state machine — exception) |
+|---|-----------------------------------|----------------------------------|----------------------------------------|
+| **When to publish** | After Create & Update succeed | Same | After `Commit` in `Save` |
+| **Event DTO** | Single `{Domain}Event` + `event_type` (`created` \| `updated`) | `UserCreatedEvent` (no `event_type`; legacy name) | Entity payload `entitysample.Sample` |
+| **Publisher API** | `PublishCampaign(ctx, campaign, eventType)` or `Publish(ctx, events.CampaignEvent)` | `PublishUser(ctx, user)` | `Publish(ctx, sample)` |
+| **Producer** | `kafka.NewProducer[events.CampaignEvent](...)` — **one type per domain** | `Producer[events.UserCreatedEvent]` | `Producer[entitysample.Sample]` |
+| **Publish fails** | **Log**; HTTP still **2xx** | Same (log only) | **Return error** from `Save` |
+| **Reference code** | Implement per this table | `user_usecase.go` | `saver.go` (lines 126–127) |
+
+**Recommended layout (e.g. `campaign`):**
+
+```go
+// internal/transport/event/events/campaign_events.go
+const (
+    CampaignEventTypeCreated = "created"
+    CampaignEventTypeUpdated = "updated"
+)
+
+type CampaignEvent struct {
+    EventType string `json:"event_type"` // created | updated
+    ID        string `json:"id"`
+    // shared fields consumers need
+}
+
+// internal/usecase/campaign/events.go
+type CampaignEventPublisher interface {
+    Publish(ctx context.Context, c campaignEntity.Campaign, eventType string) error
+}
+```
+
+```go
+// infra: maps entity + eventType → CampaignEvent → Producer.Publish
+// internal/infrastructure/broker/kafka/campaign_event_publisher.go
+func (p *CampaignEventPublisherKafka) Publish(ctx context.Context, c campaign.Campaign, eventType string) error {
+    return p.producer.Publish(ctx, events.CampaignEvent{
+        EventType: eventType,
+        ID:        c.ID,
+        // ...
+    })
+}
+```
+
+```go
+// Create — after Commit
+if err = s.publisher.Publish(ctx, created, events.CampaignEventTypeCreated); err != nil {
+    log.Printf("campaign_usecase: publish created: %v", err)
+}
+
+// Update — after repo.Update
+if err = s.publisher.Publish(ctx, updated, events.CampaignEventTypeUpdated); err != nil {
+    log.Printf("campaign_usecase: publish updated: %v", err)
+}
+```
+
+One topic per domain is typical; consumers branch on `event_type` in JSON. Document topic name in README / config.
+
+**Do not** use `{Domain}CreatedEvent` / `{Domain}UpdatedEvent` for new domains. **Do not** apply sample’s “return publish error” to new CRUD unless product requires it — see [statemachine.md](./statemachine.md) § Kafka publish semantics.
+
+**users** stays as legacy naming (`UserCreatedEvent`); new domains use `{Domain}Event` + `event_type`.
+
 ### CRUD service (users)
 
-- File: `{domain}_usecase.go`, optional `events.go` for publisher interface.
-- `NewUserService(repo, txManager, publisher)` — **must** pass `begin.BeginRepository`.
+- Files: `{domain}_usecase.go` + **`events.go`** (publisher interface).
+- `NewUserService(repo, txManager, publisher)` — **must** pass `begin.BeginRepository` and `UserEventPublisher`.
 - Mutations: `Begin` → repo writes with `tx`; reads in tx: `repo.GetByID(ctx, tx, id)`; reads without tx: `repo.GetByID(ctx, nil, id)` (falls back to `r.db`).
-- Validate in usecase; publish after commit; **log** publish errors (do not fail the HTTP response).
+- **Create/Update:** always `publisher.Publish…` after successful persist; log publish errors (see § Event publishing).
 
-### State machine service (sample)
+### State machine service (sample) — publish-error exception
 
 - `SampleService` with `Save(ctx, sample)` — see [statemachine.md](./statemachine.md).
 - `NewSampleSaver(factory, txManager, adder, getter, updater, publisher)`.
 - Inside `Save`: `getter.Get(ctx, tx, id)` → `repo.GetByID(ctx, tx, id)`; `adder`/`updater` use `(ctx, tx, ...)` as well.
-- Publish after commit; **return** publish error to caller (stricter than users).
+- Publish after `Commit`; if `publisher.Publish` fails, **`Save` returns the error** (DB already committed — operators must handle retry/idempotency). This is **intentionally stricter** than CRUD users; do not copy this into new CRUD usecases.
 
 ### Publisher interface (in usecase package)
 
-```go
-// users/events.go
-type UserEventPublisher interface {
-    PublishUser(ctx context.Context, user userEntity.User) error
-}
+| Domain | Interface location | Method | Infra implementation |
+|--------|-------------------|--------|----------------------|
+| users | `events.go` | `PublishUser(ctx, user)` | `user_event_publisher.go` → `Producer[events.UserCreatedEvent]` |
+| sample | `saver.go` | `Publish(ctx, sample)` | `sample_event_publisher.go` → `Producer[entitysample.Sample]` |
 
-// sample — interface in saver.go
-type SamplePublisher interface {
-    Publish(ctx context.Context, sample entitysample.Sample) error
-}
-```
-
-Implementations: `internal/infrastructure/broker/kafka/`.
+Usecase must depend on the **interface**, never on `internal/infrastructure/broker/kafka` directly.
 
 ---
 
@@ -449,14 +568,28 @@ If `openapi.yaml` documents a raw array or schema without wrapper, either update
 
 ---
 
-## 5. Kafka (optional)
+## 5. Kafka producers (required for Create & Update)
 
-| Style | Used by | Event type | Publisher |
-|-------|---------|------------|-----------|
-| Dedicated event DTO | users | `events.UserCreatedEvent` | `user_event_publisher.go` |
-| Domain entity as payload | sample | `entitysample.Sample` | `sample_event_publisher.go` |
+**Default:** any domain with HTTP (or workflow) **Create** or **Update** that writes to Postgres must ship a producer wired like **users**.
 
-Shared setup in `wire.go`:
+| Style | Used by | When | Event type | Publisher |
+|-------|---------|------|------------|-----------|
+| Legacy single DTO | users | After Create & Update | `UserCreatedEvent` (no `event_type`) | `user_event_publisher.go` |
+| **One DTO per domain** | **new CRUD** (recommended) | After Create / Update | `{Domain}Event` + `event_type` `created`\|`updated` | `{domain}_event_publisher.go` |
+| Domain entity as payload | sample (state machine) | After `Save` commits | `entitysample.Sample`; **return** publish error | `sample_event_publisher.go` |
+
+**Not optional for new CRUD domains** unless the task explicitly says “no Kafka”. If omitted, document the reason in the PR/README.
+
+**Producer flow (users):**
+
+```
+usecase Create/Update success
+    → publisher.Publish*(ctx, entity)
+        → kafka/*_event_publisher.go maps entity → events.*Event
+            → go-lib Producer.Publish → topic from config
+```
+
+Shared setup in `wire.go` (per domain topic/key as needed):
 
 ```go
 producer, err := kafka.NewProducer[T](
@@ -587,6 +720,8 @@ Also ensure **Folder Structure** mentions `internal/entity/campaigns`, `internal
 - [ ] `AutoMigrate` includes new model
 - [ ] `txManager` injected where transactions are used
 - [ ] Every repository method has `tx *gorm.DB`; postgres has `dbOrTx`; writes require `tx != nil`
+- [ ] `events.go` + `{domain}_event_publisher.go` + `events/{domain}_events.go`; **Create** and **Update** call publisher; publish errors logged (users style)
+- [ ] `wire{Domain}Service` creates `kafka.NewProducer` and injects publisher
 - [ ] State machine domains: [statemachine.md](./statemachine.md)
 - [ ] Money fields use `shopspring/decimal`, not float
 - [ ] Read `database/*.sql` + `database/openapi.yaml`; implementation matches both
@@ -596,7 +731,7 @@ Also ensure **Folder Structure** mentions `internal/entity/campaigns`, `internal
 
 ## AI command examples
 
-> Read AGENTS.md and docs/codegen.md. Add **product** with HTTP CRUD and postgres, no Kafka.
+> Read AGENTS.md and docs/codegen.md. Add **product** with HTTP CRUD and postgres, **including Kafka publish on Create/Update** (users `events.go` + publisher pattern).
 
 > Read AGENTS.md, docs/codegen.md, and docs/statemachine.md. Add **order** with status workflow like **sample**, including Kafka and POST/PUT routes.
 

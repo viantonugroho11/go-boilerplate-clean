@@ -55,10 +55,10 @@ Read this file first. Then open the doc(s) for your task before writing code.
 
 - **Entity package** may be plural (`users`); **repository folder** is often singular (`user`, `sample`).
 - **Transactions:** inject `begin.BeginRepository` — it matches sample’s `TransactionManager` (`Begin` / `Commit` / `Rollback`).
-- **Kafka — two patterns in this repo:**
-  - **Users:** dedicated event DTO in `internal/transport/event/events/`, typed producer.
-  - **Sample:** publish `entitysample.Sample` directly via `SampleEventPublisherKafka`.
-- **Publish errors:** `UserService` logs publish failures after commit; `SampleService.Save` **returns** publish error (stricter).
+- **Kafka — publish on Create/Update (CRUD) or after Save (state machine):** see [docs/codegen.md](docs/codegen.md) § Event publishing.
+  - **New CRUD domains:** one `{Domain}Event` per domain with `event_type` (`created` / `updated`); same call pattern as users; **log** publish failures (HTTP still succeeds).
+  - **Users (legacy):** `UserCreatedEvent` (legacy name, no `event_type`) — call pattern only.
+  - **Sample (exception):** entity payload; `Save` **returns** publish error to caller ([statemachine.md](docs/statemachine.md) § Kafka publish semantics).
 - **State machine:** all status changes go through `states` + `Saver.Save`; never in HTTP handlers or repository shortcuts.
 
 ## HTTP endpoints (existing)
