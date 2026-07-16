@@ -1,0 +1,196 @@
+openapi: 3.0.3
+info:
+  title: Campaign Service API
+  version: 1.0.0
+  description: REST API for campaign catalog, content, beneficiaries, updates, and statistics.
+
+servers:
+  - url: https://api.example.com/v1/campaigns
+    description: Production
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Categories
+  - name: Campaigns
+  - name: Updates
+  - name: Statistics
+
+paths:
+  /categories:
+    get:
+      tags: [Categories]
+      summary: List campaign categories
+      operationId: listCampaignCategories
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CampaignCategory' }
+
+  /campaigns:
+    get:
+      tags: [Campaigns]
+      summary: List campaigns
+      operationId: listCampaigns
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: category_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Campaign' }
+    post:
+      tags: [Campaigns]
+      summary: Create campaign
+      operationId: createCampaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCampaignRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+
+  /campaigns/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Campaigns]
+      summary: Get campaign
+      operationId: getCampaign
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Campaigns]
+      summary: Update campaign
+      operationId: patchCampaign
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchCampaignRequest' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+
+  /campaigns/{id}/updates:
+    post:
+      tags: [Updates]
+      summary: Post campaign update
+      operationId: createCampaignUpdate
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCampaignUpdateRequest' }
+      responses:
+        '201':
+          description: Created
+
+  /campaigns/{id}/statistics:
+    get:
+      tags: [Statistics]
+      summary: Get campaign statistics
+      operationId: getCampaignStatistics
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CampaignStatistics' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    NotFound:
+      description: Not found
+  schemas:
+    CampaignCategory:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        parent_id: { type: string, format: uuid, nullable: true }
+    Campaign:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        title: { type: string }
+        target_amount: { type: number }
+        collected_amount: { type: number }
+        currency: { type: string }
+        status: { type: string }
+        visibility: { type: string }
+        verification_status: { type: string }
+    CreateCampaignRequest:
+      type: object
+      required: [organizer_user_id, slug, title, target_amount]
+      properties:
+        organizer_user_id: { type: string, format: uuid }
+        slug: { type: string }
+        title: { type: string }
+        short_description: { type: string }
+        category_id: { type: string, format: uuid }
+        target_amount: { type: number }
+        currency: { type: string, default: IDR }
+    PatchCampaignRequest:
+      type: object
+      properties:
+        status: { type: string }
+        verification_status: { type: string }
+        story_content: { type: string }
+    CreateCampaignUpdateRequest:
+      type: object
+      required: [title, content, created_by]
+      properties:
+        title: { type: string }
+        content: { type: string }
+        created_by: { type: string, format: uuid }
+        publish: { type: boolean, default: false }
+    CampaignStatistics:
+      type: object
+      properties:
+        campaign_id: { type: string, format: uuid }
+        total_donations: { type: integer }
+        total_unique_donors: { type: integer }
+        share_count: { type: integer }
+        view_count: { type: integer }
