@@ -6,6 +6,7 @@ import (
 	"net/http"
 )
 
+
 // Code is a stable machine-readable error identifier for clients.
 type Code string
 
@@ -127,32 +128,5 @@ func FromError(err error) *AppError {
 	if ae, ok := AsAppError(err); ok {
 		return ae
 	}
-
-	switch {
-	case errors.Is(err, ErrSampleIDRequired):
-		return ErrSampleIDRequired
-	case errors.Is(err, ErrSampleNotFound):
-		return ErrSampleNotFound
-	case errors.Is(err, ErrUserNotFound):
-		return ErrUserNotFound
-	case errors.Is(err, ErrUserIDRequired):
-		return ErrUserIDRequired
-	case errors.Is(err, ErrUserNameRequired):
-		return ErrUserNameRequired
-	case errors.Is(err, ErrUserEmailRequired):
-		return ErrUserEmailRequired
-	}
-
-	// Legacy string-based errors from repository / usecase.
-	msg := err.Error()
-	switch msg {
-	case "sample not found", "user not found":
-		return NotFound(msg)
-	case "sample id is required", "id is required", "name is required", "email is required":
-		return Validation(msg)
-	case "invalid request body":
-		return BadRequest(msg)
-	}
-
 	return Internal("an unexpected error occurred", err)
 }

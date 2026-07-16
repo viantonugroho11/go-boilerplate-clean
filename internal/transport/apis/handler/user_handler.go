@@ -47,20 +47,9 @@ func (h *UserHandler) GetByID(c echo.Context) error {
 
 func (h *UserHandler) List(c echo.Context) error {
 	page := pagination.ParseQuery(c)
-	users, err := h.service.List(c.Request().Context())
+	users, total, err := h.service.List(c.Request().Context(), page)
 	if err != nil {
 		return response.Error(c, err)
-	}
-	total := int64(len(users))
-	start := page.Offset()
-	if start > len(users) {
-		users = []userEntity.User{}
-	} else {
-		end := start + page.Limit()
-		if end > len(users) {
-			end = len(users)
-		}
-		users = users[start:end]
 	}
 	return response.Paginated(c, pagination.NewList(users, page, total))
 }

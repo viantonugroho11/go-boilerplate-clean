@@ -2,19 +2,20 @@ package users
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"strings"
 
 	userEntity "go-boilerplate-clean/internal/entity/users"
 	begin "go-boilerplate-clean/internal/repository/begin"
 	repouser "go-boilerplate-clean/internal/repository/user"
 	"go-boilerplate-clean/internal/shared/apperrors"
+	"go-boilerplate-clean/internal/shared/pagination"
 )
 
 type UserService interface {
 	Create(ctx context.Context, user userEntity.User) (userEntity.User, error)
 	GetByID(ctx context.Context, id string) (userEntity.User, error)
-	List(ctx context.Context) ([]userEntity.User, error)
+	List(ctx context.Context, page pagination.Request) ([]userEntity.User, int64, error)
 	Update(ctx context.Context, user userEntity.User) (userEntity.User, error)
 	Delete(ctx context.Context, id string) error
 }
@@ -30,14 +31,13 @@ func NewUserService(repo repouser.UserRepository, txManager begin.BeginRepositor
 }
 
 func (s *userService) Create(ctx context.Context, user userEntity.User) (userEntity.User, error) {
-	if err := validateUser(user, true); err != nil {
+	if err := validateUser(user); err != nil {
 		return userEntity.User{}, err
 	}
 	tx, err := s.txManager.Begin(ctx)
 	if err != nil {
 		return userEntity.User{}, err
 	}
-
 	defer func() {
 		if err != nil {
 			s.txManager.Rollback(ctx, tx)
@@ -47,14 +47,11 @@ func (s *userService) Create(ctx context.Context, user userEntity.User) (userEnt
 	if err != nil {
 		return userEntity.User{}, err
 	}
-	err = s.txManager.Commit(ctx, tx)
-	if err != nil {
+	if err = s.txManager.Commit(ctx, tx); err != nil {
 		return userEntity.User{}, err
 	}
-
-	err = s.publisher.PublishUser(ctx, created)
-	if err != nil {
-		log.Printf("user_usecase: PublishUserCreated: %v", err)
+	if err := s.publisher.PublishUser(ctx, created); err != nil {
+		slog.Error("user_usecase: PublishUser after create", "err", err)
 	}
 	return created, nil
 }
@@ -66,25 +63,23 @@ func (s *userService) GetByID(ctx context.Context, id string) (userEntity.User, 
 	return s.repo.GetByID(ctx, nil, id)
 }
 
-func (s *userService) List(ctx context.Context) ([]userEntity.User, error) {
-	return s.repo.List(ctx, nil)
+func (s *userService) List(ctx context.Context, page pagination.Request) ([]userEntity.User, int64, error) {
+	return s.repo.List(ctx, nil, page.Offset(), page.Limit())
 }
 
 func (s *userService) Update(ctx context.Context, user userEntity.User) (userEntity.User, error) {
 	if strings.TrimSpace(user.ID) == "" {
 		return userEntity.User{}, apperrors.ErrUserIDRequired
 	}
-	if err := validateUser(user, false); err != nil {
+	if err := validateUser(user); err != nil {
 		return userEntity.User{}, err
 	}
 	updated, err := s.repo.Update(ctx, nil, user)
 	if err != nil {
 		return userEntity.User{}, err
 	}
-
-	err = s.publisher.PublishUser(ctx, updated)
-	if err != nil {
-		log.Printf("user_usecase: PublishUserUpdated: %v", err)
+	if err := s.publisher.PublishUser(ctx, updated); err != nil {
+		slog.Error("user_usecase: PublishUser after update", "err", err)
 	}
 	return updated, nil
 }
@@ -96,10 +91,7 @@ func (s *userService) Delete(ctx context.Context, id string) error {
 	return s.repo.Delete(ctx, nil, id)
 }
 
-func validateUser(user userEntity.User, creating bool) error {
-	if creating && strings.TrimSpace(user.ID) != "" {
-		// ID akan diisi oleh repository saat create jika kosong
-	}
+func validateUser(user userEntity.User) error {
 	if strings.TrimSpace(user.Name) == "" {
 		return apperrors.ErrUserNameRequired
 	}

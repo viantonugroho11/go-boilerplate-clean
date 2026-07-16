@@ -3,14 +3,14 @@ package bootstrap
 import (
 	"context"
 
+	"go-boilerplate-clean/internal/config"
 	pginfra "go-boilerplate-clean/internal/infrastructure/database/postgres"
 	"gorm.io/gorm"
 )
 
-// InitDB connect ke Postgres dan jalankan migrate. Pakai Config() global.
-func initDB() (*gorm.DB, error) {
+func initDB(cfg *config.Configuration) (*gorm.DB, error) {
 	ctx := context.Background()
-	db, err := pginfra.Connect(ctx, Config().PGDSN())
+	db, err := pginfra.Connect(ctx, cfg.PGDSN())
 	if err != nil {
 		return nil, err
 	}

@@ -21,84 +21,74 @@ func NewUserRepository(db *gorm.DB) user.UserRepository {
 	return &userRepository{db: db}
 }
 
-func (r *userRepository) Create(ctx context.Context, tx *gorm.DB, user userEntity.User) (userEntity.User, error) {
-	if user.ID == "" {
-		user.ID = uuid.NewString()
+func (r *userRepository) conn(tx *gorm.DB) *gorm.DB {
+	if tx != nil {
+		return tx
 	}
+	return r.db
+}
+
+func (r *userRepository) Create(ctx context.Context, tx *gorm.DB, u userEntity.User) (userEntity.User, error) {
+	if u.ID == "" {
+		u.ID = uuid.NewString()
+	}
+	m := model.ToModel(u)
+	if err := r.conn(tx).WithContext(ctx).Create(&m).Error; err != nil {
+		return userEntity.User{}, err
+	}
+	return model.ToEntity(&m), nil
+}
+
+func (r *userRepository) GetByID(ctx context.Context, tx *gorm.DB, id string) (userEntity.User, error) {
 	var m model.User
-	m = model.ToModel(user)
-	err := tx.WithContext(ctx).Create(&m).Error
+	err := r.conn(tx).WithContext(ctx).First(&m, "id = ?", id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return userEntity.User{}, apperrors.ErrUserNotFound
+	}
 	if err != nil {
 		return userEntity.User{}, err
 	}
 	return model.ToEntity(&m), nil
-
 }
 
-func (r *userRepository) GetByID(ctx context.Context, tx *gorm.DB, id string) (userEntity.User, error) {
-	var u model.User
-	if tx != nil {
-		err := tx.WithContext(ctx).First(&u, "id = ?", id).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return userEntity.User{}, apperrors.ErrUserNotFound
-		}
-		return model.ToEntity(&u), nil
+func (r *userRepository) List(ctx context.Context, tx *gorm.DB, offset, limit int) ([]userEntity.User, int64, error) {
+	db := r.conn(tx).WithContext(ctx)
+	var total int64
+	if err := db.Model(&model.User{}).Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
-	err := r.db.WithContext(ctx).First(&u, "id = ?", id).Error
-	if err != nil {
-		return userEntity.User{}, err
-	}
-	return model.ToEntity(&u), nil
-}
-
-func (r *userRepository) List(ctx context.Context, tx *gorm.DB) ([]userEntity.User, error) {
-	var result []userEntity.User
 	var rows []model.User
-	if tx != nil {
-		err := tx.WithContext(ctx).Order("name").Find(&rows).Error
-		if err != nil {
-			return nil, err
-		}
-		for _, u := range rows {
-			result = append(result, model.ToEntity(&u))
-		}
-		return result, nil
+	if err := db.Order("name").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
+		return nil, 0, err
 	}
-	err := r.db.WithContext(ctx).Order("name").Find(&rows).Error
-	if err != nil {
-		return nil, err
+	result := make([]userEntity.User, 0, len(rows))
+	for i := range rows {
+		result = append(result, model.ToEntity(&rows[i]))
 	}
-	for _, u := range rows {
-		result = append(result, model.ToEntity(&u))
-	}
-	return result, nil
+	return result, total, nil
 }
 
-func (r *userRepository) Update(ctx context.Context, tx *gorm.DB, user userEntity.User) (userEntity.User, error) {
-	if tx == nil {
-		return userEntity.User{}, errors.New("not implemented")
+func (r *userRepository) Update(ctx context.Context, tx *gorm.DB, u userEntity.User) (userEntity.User, error) {
+	m := model.ToModel(u)
+	res := r.conn(tx).WithContext(ctx).Model(&m).Where("id = ?", u.ID).Updates(map[string]interface{}{
+		"name":  u.Name,
+		"email": u.Email,
+	})
+	if res.Error != nil {
+		return userEntity.User{}, res.Error
 	}
-	var u model.User
-	u = model.ToModel(user)
-	err := tx.WithContext(ctx).Model(&u).Where("id = ?", user.ID).Updates(map[string]interface{}{
-		"name":  user.Name,
-		"email": user.Email,
-	}).Error
-	if err != nil {
-		return userEntity.User{}, err
-	}
-	if tx.RowsAffected == 0 {
+	if res.RowsAffected == 0 {
 		return userEntity.User{}, apperrors.ErrUserNotFound
 	}
-	return user, nil
+	return u, nil
 }
 
 func (r *userRepository) Delete(ctx context.Context, tx *gorm.DB, id string) error {
-	err := tx.WithContext(ctx).Delete(&model.User{}, "id = ?", id).Error
-	if err != nil {
-		return err
+	res := r.conn(tx).WithContext(ctx).Delete(&model.User{}, "id = ?", id)
+	if res.Error != nil {
+		return res.Error
 	}
-	if tx.RowsAffected == 0 {
+	if res.RowsAffected == 0 {
 		return apperrors.ErrUserNotFound
 	}
 	return nil

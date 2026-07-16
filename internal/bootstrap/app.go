@@ -1,31 +1,37 @@
 package bootstrap
 
-// RunApp memuat config (global), wiring terisolasi (DB, Redis, Kafka, routes), lalu jalankan HTTP server sampai signal.
+// RunApp loads config, wires dependencies, and runs the HTTP server until signal.
 func RunApp() error {
-	if err := LoadConfig(); err != nil {
+	cfg, err := LoadConfig()
+	if err != nil {
 		return err
 	}
 
-	db, err := initDB()
+	db, err := initDB(cfg)
 	if err != nil {
 		return err
 	}
 	sqlDB, _ := db.DB()
 	defer sqlDB.Close()
 
-	userService, closeDeps, err := wireUserService(db)
+	userService, closeUser, err := wireUserService(cfg, db)
 	if err != nil {
 		return err
 	}
-	defer closeDeps()
+	defer closeUser()
 
-	redisClient, err := initRedis()
+	redisClient, err := initRedis(cfg)
 	if err != nil {
 		return err
 	}
 	defer redisClient.Close()
 
-	sampleService := wireSampleService(db)
+	sampleService, closeSample, err := wireSampleService(cfg, db)
+	if err != nil {
+		return err
+	}
+	defer closeSample()
+
 	e := newEcho(userService, sampleService)
-	return runHTTP(e)
+	return runHTTP(cfg, e)
 }

@@ -2,12 +2,13 @@ package bootstrap
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"time"
 
+	"go-boilerplate-clean/internal/config"
 	"go-boilerplate-clean/internal/transport/apis"
 	usecasesample "go-boilerplate-clean/internal/usecase/sample"
 	usecaseusers "go-boilerplate-clean/internal/usecase/users"
@@ -25,11 +26,9 @@ func newEcho(userService usecaseusers.UserService, sampleService usecasesample.S
 	return e
 }
 
-// RunHTTP jalankan server sampai dapat signal interrupt, lalu graceful shutdown. Pakai Config() global untuk port.
-func runHTTP(e *echo.Echo) error {
-	c := Config()
+func runHTTP(cfg *config.Configuration, e *echo.Echo) error {
 	server := &http.Server{
-		Addr:         ":" + c.App.Port,
+		Addr:         ":" + cfg.App.Port,
 		Handler:      e,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
@@ -38,10 +37,10 @@ func runHTTP(e *echo.Echo) error {
 
 	go func() {
 		if err := e.StartServer(server); err != nil && err != http.ErrServerClosed {
-			log.Printf("server error: %v", err)
+			slog.Error("server error", "err", err)
 		}
 	}()
-	log.Printf("server listening on :%s", c.App.Port)
+	slog.Info("server listening", "port", cfg.App.Port)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
@@ -50,9 +49,9 @@ func runHTTP(e *echo.Echo) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := e.Shutdown(ctx); err != nil {
-		log.Printf("server shutdown error: %v", err)
+		slog.Error("server shutdown error", "err", err)
 		return err
 	}
-	log.Println("server shutdown gracefully")
+	slog.Info("server shutdown gracefully")
 	return nil
 }

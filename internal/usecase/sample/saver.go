@@ -4,6 +4,7 @@ import (
 	"context"
 
 	entitysample "go-boilerplate-clean/internal/entity/sample"
+	"go-boilerplate-clean/internal/transport/event/events"
 	"go-boilerplate-clean/internal/usecase/sample/states"
 
 	"gorm.io/gorm"
@@ -31,7 +32,7 @@ type (
 	}
 
 	SamplePublisher interface {
-		Publish(ctx context.Context, sample entitysample.Sample) error
+		Publish(ctx context.Context, event events.SampleEvent) error
 	}
 
 	TransactionManager interface {
@@ -123,7 +124,12 @@ func (s *sampleSaver) Save(ctx context.Context, sample entitysample.Sample) (ent
 		return entitysample.Sample{}, err
 	}
 
-	if err := s.publisher.Publish(ctx, updated); err != nil {
+	action := events.ActionCreate
+	if current != nil {
+		action = events.ActionUpdate
+	}
+	evt := events.NewSampleEvent(action, current, &updated)
+	if err := s.publisher.Publish(ctx, evt); err != nil {
 		return entitysample.Sample{}, err
 	}
 

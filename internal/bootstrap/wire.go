@@ -1,7 +1,7 @@
 package bootstrap
 
 import (
-	entitysample "go-boilerplate-clean/internal/entity/sample"
+	"go-boilerplate-clean/internal/config"
 	kafkainfra "go-boilerplate-clean/internal/infrastructure/broker/kafka"
 	beginpg "go-boilerplate-clean/internal/repository/begin/postgres"
 	samplepg "go-boilerplate-clean/internal/repository/sample/postgres"
@@ -13,20 +13,16 @@ import (
 	"go-boilerplate-clean/internal/usecase/sample/on_pending"
 	"go-boilerplate-clean/internal/usecase/sample/states"
 	usecaseusers "go-boilerplate-clean/internal/usecase/users"
-	"log"
 
 	"github.com/viantonugroho11/go-lib/kafka"
 	"gorm.io/gorm"
 )
 
-// WireUserService membuat user repo, Kafka producer/publisher, dan UserService. Pakai Config() global. cleanup menutup producer.
-func wireUserService(db *gorm.DB) (usecaseusers.UserService, func(), error) {
+func wireUserService(cfg *config.Configuration, db *gorm.DB) (usecaseusers.UserService, func(), error) {
 	userRepo := userpg.NewUserRepository(db)
-	c := Config()
-
 	producer, err := kafka.NewProducer[events.UserCreatedEvent](
-		c.KafkaBrokersList(),
-		c.Kafka.Topic,
+		cfg.KafkaBrokersList(),
+		cfg.Kafka.Topic,
 		kafka.WithKeyFunc[events.UserCreatedEvent](func(e events.UserCreatedEvent) []byte { return []byte(e.ID) }),
 		kafka.WithIdempotent(),
 		kafka.WithRetryMax(5),
@@ -40,7 +36,7 @@ func wireUserService(db *gorm.DB) (usecaseusers.UserService, func(), error) {
 	return userService, func() { _ = producer.Close() }, nil
 }
 
-func wireSampleService(db *gorm.DB) usecasesample.SampleService {
+func wireSampleService(cfg *config.Configuration, db *gorm.DB) (usecasesample.SampleService, func(), error) {
 	sampleRepo := samplepg.NewSampleRepository(db)
 	txManager := beginpg.NewBeginRepository(db)
 	stateFactory := states.NewSampleStateMachineFactory(
@@ -48,18 +44,18 @@ func wireSampleService(db *gorm.DB) usecasesample.SampleService {
 		on_pending.NewOnPending(),
 		on_closed.NewOnClosed(),
 	)
-	producer, err := kafka.NewProducer[entitysample.Sample](
-		Config().KafkaBrokersList(),
-		Config().Kafka.Topic,
-		kafka.WithKeyFunc[entitysample.Sample](func(e entitysample.Sample) []byte { return []byte(e.ID) }),
+	producer, err := kafka.NewProducer[events.SampleEvent](
+		cfg.KafkaBrokersList(),
+		cfg.Kafka.Topic,
+		kafka.WithKeyFunc[events.SampleEvent](func(e events.SampleEvent) []byte { return []byte(e.ResourceID) }),
 		kafka.WithIdempotent(),
 		kafka.WithRetryMax(5),
 	)
 	if err != nil {
-		log.Fatalf("failed to create kafka producer: %v", err)
+		return nil, nil, err
 	}
 	publisher := kafkainfra.NewSampleEventPublisherKafka(producer)
-	return usecasesample.NewSampleSaver(
+	svc := usecasesample.NewSampleSaver(
 		stateFactory,
 		txManager,
 		sampleRepo,
@@ -67,4 +63,5 @@ func wireSampleService(db *gorm.DB) usecasesample.SampleService {
 		sampleRepo,
 		publisher,
 	)
+	return svc, func() { _ = producer.Close() }, nil
 }

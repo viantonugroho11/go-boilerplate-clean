@@ -25,20 +25,20 @@ const (
 	ConsumerOrder = event.ConsumerNameOrder
 )
 
-// RunConsumer menjalankan consumer sesuai name (user | order): config global, wiring terisolasi per consumer, run sampai signal.
+// RunConsumer runs the named consumer (user | order) until an OS signal.
 func RunConsumer(name string) error {
-	if err := LoadConfig(); err != nil {
+	cfg, err := LoadConfig()
+	if err != nil {
 		return err
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cfg := Config()
 	var consumer interface{ Close() error }
 	switch name {
 	case ConsumerUser:
-		db, err := initDB()
+		db, err := initDB(cfg)
 		if err != nil {
 			return err
 		}

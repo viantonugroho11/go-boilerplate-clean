@@ -3,25 +3,19 @@ package kafka
 import (
 	"context"
 
-	entitysample "go-boilerplate-clean/internal/entity/sample"
+	"go-boilerplate-clean/internal/transport/event/events"
 
 	"github.com/viantonugroho11/go-lib/kafka"
 )
 
 type SampleEventPublisherKafka struct {
-	producer *kafka.Producer[entitysample.Sample]
+	producer *kafka.Producer[events.SampleEvent]
 }
 
-func NewSampleEventPublisherKafka(producer *kafka.Producer[entitysample.Sample]) *SampleEventPublisherKafka {
+func NewSampleEventPublisherKafka(producer *kafka.Producer[events.SampleEvent]) *SampleEventPublisherKafka {
 	return &SampleEventPublisherKafka{producer: producer}
 }
 
-func (p *SampleEventPublisherKafka) Publish(ctx context.Context, sample entitysample.Sample) error {
-	return p.producer.Publish(ctx, entitysample.Sample{
-		ID:    sample.ID,
-		Code:  sample.Code,
-		Name:  sample.Name,
-		Email: sample.Email,
-		Status: sample.Status,
-	})
+func (p *SampleEventPublisherKafka) Publish(ctx context.Context, event events.SampleEvent) error {
+	return p.producer.Publish(ctx, event)
 }
