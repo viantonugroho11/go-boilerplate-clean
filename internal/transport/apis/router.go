@@ -1,7 +1,7 @@
 package apis
 
 import (
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"go-boilerplate-clean/internal/transport/apis/handler"
 	usecasesample "go-boilerplate-clean/internal/usecase/sample"
@@ -12,7 +12,7 @@ func RegisterRoutes(e *echo.Echo, userService users.UserService, sampleService u
 	userHandler := handler.NewUserHandler(userService)
 	sampleHandler := handler.NewSampleHandler(sampleService)
 
-	e.GET("/healthz", func(c echo.Context) error {
+	e.GET("/healthz", func(c *echo.Context) error {
 		return c.String(200, "ok")
 	})
 

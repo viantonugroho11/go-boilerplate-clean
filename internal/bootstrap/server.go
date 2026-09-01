@@ -13,21 +13,20 @@ import (
 	usecasesample "go-boilerplate-clean/internal/usecase/sample"
 	usecaseusers "go-boilerplate-clean/internal/usecase/users"
 
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 )
 
 // NewEcho buat Echo, middleware, dan daftar routes.
 func newEcho(userService usecaseusers.UserService, sampleService usecasesample.SampleService) *echo.Echo {
 	e := echo.New()
-	e.HideBanner = true
-	e.Use(middleware.Recover(), middleware.Logger())
+	e.Use(middleware.Recover(), middleware.RequestLogger())
 	apis.RegisterRoutes(e, userService, sampleService)
 	return e
 }
 
 func runHTTP(cfg *config.Configuration, e *echo.Echo) error {
-	server := &http.Server{
+	s := &http.Server{
 		Addr:         ":" + cfg.App.Port,
 		Handler:      e,
 		ReadTimeout:  10 * time.Second,
@@ -36,7 +35,7 @@ func runHTTP(cfg *config.Configuration, e *echo.Echo) error {
 	}
 
 	go func() {
-		if err := e.StartServer(server); err != nil && err != http.ErrServerClosed {
+		if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "err", err)
 		}
 	}()
@@ -48,7 +47,7 @@ func runHTTP(cfg *config.Configuration, e *echo.Echo) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := e.Shutdown(ctx); err != nil {
+	if err := s.Shutdown(ctx); err != nil {
 		slog.Error("server shutdown error", "err", err)
 		return err
 	}

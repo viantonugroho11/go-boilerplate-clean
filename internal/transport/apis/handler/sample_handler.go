@@ -8,7 +8,7 @@ import (
 	"go-boilerplate-clean/internal/transport/apis/dto"
 	usecasesample "go-boilerplate-clean/internal/usecase/sample"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type SampleHandler struct {
@@ -19,7 +19,7 @@ func NewSampleHandler(service usecasesample.SampleService) *SampleHandler {
 	return &SampleHandler{service: service}
 }
 
-func (h *SampleHandler) Create(c echo.Context) error {
+func (h *SampleHandler) Create(c *echo.Context) error {
 	var req dto.SaveSampleRequest
 	if err := c.Bind(&req); err != nil {
 		return response.BindError(c, err)
@@ -31,7 +31,7 @@ func (h *SampleHandler) Create(c echo.Context) error {
 	return response.Created(c, sample)
 }
 
-func (h *SampleHandler) Update(c echo.Context) error {
+func (h *SampleHandler) Update(c *echo.Context) error {
 	id := c.Param("id")
 	if strings.TrimSpace(id) == "" {
 		return response.Error(c, apperrors.ErrSampleIDRequired)

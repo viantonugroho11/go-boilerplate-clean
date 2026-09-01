@@ -10,7 +10,7 @@ import (
 	"go-boilerplate-clean/internal/transport/apis/dto"
 	userUsecase "go-boilerplate-clean/internal/usecase/users"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type UserHandler struct {
@@ -21,7 +21,7 @@ func NewUserHandler(service userUsecase.UserService) *UserHandler {
 	return &UserHandler{service: service}
 }
 
-func (h *UserHandler) Create(c echo.Context) error {
+func (h *UserHandler) Create(c *echo.Context) error {
 	var req dto.CreateUserRequest
 	if err := c.Bind(&req); err != nil {
 		return response.BindError(c, err)
@@ -33,7 +33,7 @@ func (h *UserHandler) Create(c echo.Context) error {
 	return response.Created(c, user)
 }
 
-func (h *UserHandler) GetByID(c echo.Context) error {
+func (h *UserHandler) GetByID(c *echo.Context) error {
 	id := c.Param("id")
 	if strings.TrimSpace(id) == "" {
 		return response.Error(c, apperrors.ErrUserIDRequired)
@@ -45,7 +45,7 @@ func (h *UserHandler) GetByID(c echo.Context) error {
 	return response.OK(c, user)
 }
 
-func (h *UserHandler) List(c echo.Context) error {
+func (h *UserHandler) List(c *echo.Context) error {
 	page := pagination.ParseQuery(c)
 	users, total, err := h.service.List(c.Request().Context(), page)
 	if err != nil {
@@ -54,7 +54,7 @@ func (h *UserHandler) List(c echo.Context) error {
 	return response.Paginated(c, pagination.NewList(users, page, total))
 }
 
-func (h *UserHandler) Update(c echo.Context) error {
+func (h *UserHandler) Update(c *echo.Context) error {
 	id := c.Param("id")
 	if strings.TrimSpace(id) == "" {
 		return response.Error(c, apperrors.ErrUserIDRequired)
@@ -74,7 +74,7 @@ func (h *UserHandler) Update(c echo.Context) error {
 	return response.OK(c, user)
 }
 
-func (h *UserHandler) Delete(c echo.Context) error {
+func (h *UserHandler) Delete(c *echo.Context) error {
 	id := c.Param("id")
 	if strings.TrimSpace(id) == "" {
 		return response.Error(c, apperrors.ErrUserIDRequired)

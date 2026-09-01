@@ -4,7 +4,7 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 const (
@@ -85,7 +85,7 @@ func NewList[T any](items []T, req Request, total int64) List[T] {
 }
 
 // ParseQuery reads page and per_page from Echo query parameters.
-func ParseQuery(c echo.Context) Request {
+func ParseQuery(c *echo.Context) Request {
 	page, _ := strconv.Atoi(c.QueryParam("page"))
 	perPage, _ := strconv.Atoi(c.QueryParam("per_page"))
 	req := Request{Page: page, PerPage: perPage}
